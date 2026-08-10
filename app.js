@@ -404,7 +404,7 @@
     html += '      <div><div class="field-label">Ingreso</div><input type="date" value="' + escapeHtml(buf.fechaIngreso || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="fechaIngreso" data-focus-key="edit-' + fila.id + '-fechaIngreso"></div>';
     html += '      <div><div class="field-label">Fin contrato</div><input type="date" value="' + escapeHtml(buf.fechaFinContrato || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="fechaFinContrato" data-focus-key="edit-' + fila.id + '-fechaFinContrato"></div>';
     html += '    </div>';
-    html += '    <input type="number" inputmode="numeric" placeholder="Monto mensual" value="' + escapeHtml(buf.monto || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="monto" data-focus-key="edit-' + fila.id + '-monto">';
+    html += '    <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Monto mensual" value="' + escapeHtml(buf.monto || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="monto" data-focus-key="edit-' + fila.id + '-monto">';
     html += '    <div class="toggle-row">';
     html += '      <button type="button" class="toggle-btn' + (!confactura ? ' active' : '') + '" data-action="factura-edit" data-id="' + fila.id + '" data-value="false">Sin factura</button>';
     html += '      <button type="button" class="toggle-btn' + (confactura ? ' active' : '') + '" data-action="factura-edit" data-id="' + fila.id + '" data-value="true">Con factura (+21% IVA)</button>';
@@ -440,7 +440,7 @@
     html += '      <div><div class="field-label">Ingreso</div><input type="date" value="' + escapeHtml(n.fechaIngreso) + '" data-scope="nuevo" data-field="fechaIngreso" data-focus-key="nuevo-fechaIngreso"></div>';
     html += '      <div><div class="field-label">Fin contrato</div><input type="date" value="' + escapeHtml(n.fechaFinContrato) + '" data-scope="nuevo" data-field="fechaFinContrato" data-focus-key="nuevo-fechaFinContrato"></div>';
     html += '    </div>';
-    html += '    <input type="number" inputmode="numeric" placeholder="Monto mensual" value="' + escapeHtml(n.monto) + '" data-scope="nuevo" data-field="monto" data-focus-key="nuevo-monto">';
+    html += '    <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Monto mensual" value="' + escapeHtml(n.monto) + '" data-scope="nuevo" data-field="monto" data-focus-key="nuevo-monto">';
     html += '    <div class="toggle-row">';
     html += '      <button type="button" class="toggle-btn' + (!n.conFactura ? ' active' : '') + '" data-action="factura-nuevo" data-value="false">Sin factura</button>';
     html += '      <button type="button" class="toggle-btn' + (n.conFactura ? ' active' : '') + '" data-action="factura-nuevo" data-value="true">Con factura (+21% IVA)</button>';
@@ -521,11 +521,17 @@
     return html;
   }
 
+  var SELECTABLE_TYPES = { text: 1, search: 1, tel: 1, url: 1, password: 1 };
+
   function render() {
     var active = document.activeElement;
     var focusInfo = null;
     if (active && active.dataset && active.dataset.focusKey && appEl.contains(active)) {
-      focusInfo = { key: active.dataset.focusKey, start: active.selectionStart, end: active.selectionEnd };
+      var canSelect = active.tagName === 'TEXTAREA' || SELECTABLE_TYPES[active.type];
+      focusInfo = { key: active.dataset.focusKey, start: null, end: null };
+      if (canSelect) {
+        try { focusInfo.start = active.selectionStart; focusInfo.end = active.selectionEnd; } catch (e) {}
+      }
     }
     appEl.innerHTML = renderApp();
     if (focusInfo) {
