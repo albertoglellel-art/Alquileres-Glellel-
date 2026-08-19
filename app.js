@@ -76,11 +76,70 @@
   var ICON_DOWNLOAD = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
   var ICON_SUN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
   var ICON_MOON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
+  var ICON_GEAR = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
 
   var TEMA_KEY = 'alquileres-tema';
   function aplicarTema(tema) {
     document.documentElement.setAttribute('data-theme', tema);
     try { localStorage.setItem(TEMA_KEY, tema); } catch (e) {}
+  }
+
+  var GITHUB_CFG_KEY = 'alquileres-github-cfg';
+  function cargarGithubCfg() {
+    try {
+      var raw = localStorage.getItem(GITHUB_CFG_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  function guardarGithubCfgLocal(cfg) {
+    try { localStorage.setItem(GITHUB_CFG_KEY, JSON.stringify(cfg)); } catch (e) {}
+  }
+  function borrarGithubCfgLocal() {
+    try { localStorage.removeItem(GITHUB_CFG_KEY); } catch (e) {}
+  }
+  function utf8ToBase64(str) {
+    return btoa(unescape(encodeURIComponent(str)));
+  }
+  async function verificarGithubCfg(cfg) {
+    try {
+      var res = await fetch('https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo, {
+        headers: { 'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json' }
+      });
+      if (res.status === 200) {
+        var data = await res.json();
+        if (data.private === false) return { ok: false, reason: 'ese repo es publico, usa uno privado' };
+        return { ok: true };
+      }
+      if (res.status === 404) return { ok: false, reason: 'no encontrado (revisa usuario/repo o permisos del token)' };
+      if (res.status === 401) return { ok: false, reason: 'token invalido' };
+      return { ok: false, reason: 'HTTP ' + res.status };
+    } catch (e) {
+      return { ok: false, reason: e.message };
+    }
+  }
+  async function subirBackupAGithub(jsonStr, cfg) {
+    var path = 'backup.json';
+    var apiUrl = 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + path;
+    var headers = { 'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json' };
+    try {
+      var sha = null;
+      var getRes = await fetch(apiUrl, { headers: headers });
+      if (getRes.status === 200) {
+        var getData = await getRes.json();
+        sha = getData.sha;
+      }
+      var body = {
+        message: 'Backup ' + new Date().toISOString().slice(0, 19).replace('T', ' '),
+        content: utf8ToBase64(jsonStr)
+      };
+      if (sha) body.sha = sha;
+      var putRes = await fetch(apiUrl, { method: 'PUT', headers: Object.assign({ 'Content-Type': 'application/json' }, headers), body: JSON.stringify(body) });
+      if (putRes.ok) return { ok: true };
+      var errData = await putRes.json().catch(function () { return {}; });
+      return { ok: false, reason: errData.message || ('HTTP ' + putRes.status) };
+    } catch (e) {
+      return { ok: false, reason: e.message };
+    }
   }
 
   // ---------- State ----------
@@ -97,7 +156,11 @@
     editBuffer: {},
     historialAbierto: null,
     busqueda: '',
-    tema: document.documentElement.getAttribute('data-theme') || 'light'
+    tema: document.documentElement.getAttribute('data-theme') || 'light',
+    githubCfg: cargarGithubCfg(),
+    mostrarConfigGithub: false,
+    configBuffer: { owner: '', repo: '', token: '' },
+    exportStatus: null
   };
 
   // ---------- Persistence ----------
@@ -298,9 +361,11 @@
     render();
   }
 
-  function exportarDatos() {
+  async function exportarDatos() {
     var payload = { inquilinos: state.inquilinos, meses: state.meses, exportadoEl: new Date().toISOString() };
-    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var jsonStr = JSON.stringify(payload, null, 2);
+
+    var blob = new Blob([jsonStr], { type: 'application/json' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
@@ -309,6 +374,17 @@
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+
+    if (state.githubCfg) {
+      state.exportStatus = { tipo: 'cargando', mensaje: 'Subiendo a GitHub...' };
+      render();
+      var resultado = await subirBackupAGithub(jsonStr, state.githubCfg);
+      state.exportStatus = resultado.ok
+        ? { tipo: 'ok', mensaje: 'Backup actualizado en GitHub.' }
+        : { tipo: 'error', mensaje: 'No se pudo subir: ' + resultado.reason };
+      render();
+      setTimeout(function () { state.exportStatus = null; render(); }, 5000);
+    }
   }
 
   function importarDatos(file) {
@@ -520,7 +596,15 @@
     html += '  </div>';
 
     html += '  <div class="footer-note">Vencimiento el dia 10 de cada mes</div>';
-    html += '  <button type="button" class="footer-btn" data-action="exportar">' + ICON_DOWNLOAD + ' Exportar backup (.json)</button>';
+    html += '  <div style="display:flex;gap:8px;margin-top:8px">';
+    html += '    <button type="button" class="footer-btn" style="flex:1" data-action="exportar">' + ICON_DOWNLOAD + ' Exportar backup (.json)</button>';
+    html += '    <button type="button" class="footer-btn" style="flex:0 0 auto;padding-left:12px;padding-right:12px" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button>';
+    html += '  </div>';
+    if (state.mostrarConfigGithub) html += renderConfigGithub();
+    if (state.exportStatus) {
+      var colorEstado = state.exportStatus.tipo === 'ok' ? 'var(--pagado)' : (state.exportStatus.tipo === 'error' ? 'var(--vencido)' : 'var(--ink-muted)');
+      html += '  <div style="text-align:center;margin-top:8px;font-size:12px;font-family:var(--font-mono);color:' + colorEstado + '">' + escapeHtml(state.exportStatus.mensaje) + '</div>';
+    }
 
     if (state.inquilinos.length === 0 && !state.mostrarForm) {
       html += '  <div class="import-banner"><p>&iquest;Tenes un backup de la version anterior?</p><button type="button" data-action="importar-trigger">Importar backup (.json)</button></div>';
@@ -532,6 +616,27 @@
 
   var SELECTABLE_TYPES = { text: 1, search: 1, tel: 1, url: 1, password: 1 };
 
+  function renderConfigGithub() {
+    var cfg = state.githubCfg;
+    var buf = state.configBuffer;
+    var html = '';
+    html += '<div class="new-form">';
+    html += '  <div class="new-form-head"><div class="t">Backup automatico a GitHub</div><button type="button" class="icon-plain-btn" data-action="cerrar-config-github" aria-label="Cerrar">' + ICON_X + '</button></div>';
+    if (cfg) {
+      html += '  <div class="iva-hint" style="margin-bottom:10px">Conectado a <strong>' + escapeHtml(cfg.owner) + '/' + escapeHtml(cfg.repo) + '</strong>. Cada "Exportar" tambien actualiza <code>backup.json</code> ahi, con historial.</div>';
+      html += '  <button type="button" class="text-btn delete-btn" data-action="borrar-config-github">' + ICON_TRASH + ' Desconectar</button>';
+    } else {
+      html += '  <div class="iva-hint" style="margin-bottom:10px">Repo privado + token con permiso solo a ese repo (GitHub &rarr; Settings &rarr; Developer settings &rarr; Fine-grained tokens &rarr; Contents: Read and write).</div>';
+      html += '  <div class="new-form-body">';
+      html += '    <input type="text" placeholder="Usuario de GitHub" value="' + escapeHtml(buf.owner) + '" data-scope="config-github" data-field="owner" data-focus-key="cfg-owner">';
+      html += '    <input type="text" placeholder="Nombre del repo privado" value="' + escapeHtml(buf.repo) + '" data-scope="config-github" data-field="repo" data-focus-key="cfg-repo">';
+      html += '    <input type="password" placeholder="Token" value="' + escapeHtml(buf.token) + '" data-scope="config-github" data-field="token" data-focus-key="cfg-token">';
+      html += '    <button type="button" class="primary-btn" data-action="guardar-config-github">Conectar</button>';
+      html += '  </div>';
+    }
+    html += '</div>';
+    return html;
+  }
   function render() {
     var active = document.activeElement;
     var focusInfo = null;
@@ -598,6 +703,37 @@
         aplicarTema(state.tema);
         render();
         break;
+      case 'toggle-config-github': state.mostrarConfigGithub = !state.mostrarConfigGithub; render(); break;
+      case 'cerrar-config-github': state.mostrarConfigGithub = false; render(); break;
+      case 'borrar-config-github':
+        state.githubCfg = null;
+        borrarGithubCfgLocal();
+        state.exportStatus = { tipo: 'ok', mensaje: 'Desconectado.' };
+        render();
+        setTimeout(function () { state.exportStatus = null; render(); }, 3000);
+        break;
+      case 'guardar-config-github':
+        (async function () {
+          var buf = state.configBuffer;
+          var owner = buf.owner.trim(), repo = buf.repo.trim(), token = buf.token.trim();
+          if (!owner || !repo || !token) return;
+          state.exportStatus = { tipo: 'cargando', mensaje: 'Verificando acceso...' };
+          render();
+          var cfgIntento = { owner: owner, repo: repo, token: token };
+          var test = await verificarGithubCfg(cfgIntento);
+          if (test.ok) {
+            state.githubCfg = cfgIntento;
+            guardarGithubCfgLocal(cfgIntento);
+            state.configBuffer = { owner: '', repo: '', token: '' };
+            state.mostrarConfigGithub = false;
+            state.exportStatus = { tipo: 'ok', mensaje: 'Conectado correctamente.' };
+          } else {
+            state.exportStatus = { tipo: 'error', mensaje: 'No se pudo conectar: ' + test.reason };
+          }
+          render();
+          setTimeout(function () { state.exportStatus = null; render(); }, 4000);
+        })();
+        break;
     }
   });
 
@@ -617,6 +753,11 @@
       var f = t.getAttribute('data-field');
       state.editBuffer[eid] = Object.assign({}, state.editBuffer[eid]);
       state.editBuffer[eid][f] = t.value;
+      render();
+    } else if (scope === 'config-github') {
+      var cf = t.getAttribute('data-field');
+      state.configBuffer = Object.assign({}, state.configBuffer);
+      state.configBuffer[cf] = t.value;
       render();
     }
   });
