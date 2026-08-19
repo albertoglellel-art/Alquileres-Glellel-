@@ -8,9 +8,27 @@
   --pagado: #2F6B4F;
   --vencido: #A63D33;
   --pendiente: #B8862E;
+  --error-bg: #F5E4E1;
   --font-display: Georgia, 'Iowan Old Style', 'Palatino Linotype', serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper-outer: #13170F;
+    --paper-card: #1C2117;
+    --ink: #EAE7D9;
+    --ink-muted: #8D9884;
+    --rule: #2A3122;
+    --rule-strong: #3E4834;
+    --pagado: #57A67D;
+    --vencido: #DD7A6C;
+    --pendiente: #E3B15C;
+    --error-bg: #3A211E;
+  }
+}
+
+body { transition: background-color .2s ease, color .2s ease; }
 
 * { box-sizing: border-box; }
 
@@ -47,7 +65,7 @@ h1.title { color: var(--ink); font-family: var(--font-display); font-size: 28px;
 
 .error-banner {
   margin-bottom: 12px; padding: 8px 12px; border-radius: 4px; font-size: 14px;
-  background: #F5E4E1; color: var(--vencido); border: 1px solid var(--vencido);
+  background: var(--error-bg); color: var(--vencido); border: 1px solid var(--vencido);
 }
 
 .card { background: var(--paper-card); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
