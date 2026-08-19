@@ -160,7 +160,11 @@
     githubCfg: cargarGithubCfg(),
     mostrarConfigGithub: false,
     configBuffer: { owner: '', repo: '', token: '' },
-    exportStatus: null
+    exportStatus: null,
+    mostrarCalendario: false,
+    calendarioAno: Number(monthKey(new Date()).split('-')[0]),
+    filtroEstado: null,
+    mostrarHistorico: false
   };
 
   // ---------- Persistence ----------
@@ -248,10 +252,28 @@
     });
   }
 
+  function aplicarFiltroEstado(filas) {
+    if (!state.filtroEstado) return filas;
+    if (state.filtroEstado === 'pagado') return filas.filter(function (f) { return f.estado === 'pagado'; });
+    if (state.filtroEstado === 'pendiente') return filas.filter(function (f) { return f.estado === 'pendiente' || f.estado === 'vencido'; });
+    return filas;
+  }
+
   function getTotales(filas) {
     var totalACobrar = filas.reduce(function (s, f) { return s + montoConIva(f.monto, f.conFactura); }, 0);
     var totalCobrado = filas.filter(function (f) { return f.pagado; }).reduce(function (s, f) { return s + montoConIva(f.monto, f.conFactura); }, 0);
     return { totalACobrar: totalACobrar, totalCobrado: totalCobrado, totalPendiente: totalACobrar - totalCobrado };
+  }
+
+  function historicoMensual() {
+    var claves = Object.keys(state.meses).sort();
+    return claves.map(function (k) {
+      var registros = state.meses[k] || {};
+      var lista = Object.keys(registros).map(function (id) { return registros[id]; });
+      var totalACobrar = lista.reduce(function (s, r) { return s + montoConIva(r.monto, r.conFactura); }, 0);
+      var totalCobrado = lista.filter(function (r) { return r.pagado; }).reduce(function (s, r) { return s + montoConIva(r.monto, r.conFactura); }, 0);
+      return { mes: k, totalCobrado: totalCobrado, totalPendiente: totalACobrar - totalCobrado };
+    });
   }
 
   function historialMontos(id) {
@@ -543,7 +565,7 @@
     }
     var h = getHoy();
     var filas = getFilas();
-    var filasFiltradas = getFilasFiltradas(filas);
+    var filasFiltradas = aplicarFiltroEstado(getFilasFiltradas(filas));
     var totales = getTotales(filas);
 
     var html = '';
@@ -559,18 +581,28 @@
     html += '  <div class="card">';
     html += '    <div class="month-nav">';
     html += '      <button type="button" class="icon-btn" data-action="mes-prev" aria-label="Mes anterior">' + ICON_CHEVRON_LEFT + '</button>';
-    html += '      <div class="month-label"><div class="name">' + formatMonthLabel(state.mesActual) + '</div>';
+    html += '      <div class="month-label">';
+    html += '        <button type="button" class="month-name-btn" data-action="toggle-calendario"><span class="name">' + formatMonthLabel(state.mesActual) + '</span></button>';
     if (state.mesActual !== h.todayKey) {
       html += '<button type="button" class="link-btn" data-action="mes-hoy">volver a hoy</button>';
     }
     html += '      </div>';
     html += '      <button type="button" class="icon-btn" data-action="mes-next" aria-label="Mes siguiente">' + ICON_CHEVRON_RIGHT + '</button>';
     html += '    </div>';
+    if (state.mostrarCalendario) html += renderCalendarioPicker();
     html += '    <div class="stats">';
-    html += '      <div><div class="stat-label">A cobrar</div><div class="stat-value" style="color:var(--ink)">' + formatARS(totales.totalACobrar) + '</div></div>';
-    html += '      <div><div class="stat-label">Cobrado</div><div class="stat-value" style="color:var(--pagado)">' + formatARS(totales.totalCobrado) + '</div></div>';
-    html += '      <div><div class="stat-label">Pendiente</div><div class="stat-value" style="color:' + (totales.totalPendiente > 0 ? 'var(--vencido)' : 'var(--ink-muted)') + '">' + formatARS(totales.totalPendiente) + '</div></div>';
+    html += '      <button type="button" class="stat-btn' + (!state.filtroEstado ? ' stat-btn-activo' : '') + '" data-action="filtrar-estado" data-filtro="">';
+    html += '        <div class="stat-label">A cobrar</div><div class="stat-value" style="color:var(--ink)">' + formatARS(totales.totalACobrar) + '</div>';
+    html += '      </button>';
+    html += '      <button type="button" class="stat-btn' + (state.filtroEstado === 'pagado' ? ' stat-btn-activo' : '') + '" data-action="filtrar-estado" data-filtro="pagado">';
+    html += '        <div class="stat-label">Cobrado</div><div class="stat-value" style="color:var(--pagado)">' + formatARS(totales.totalCobrado) + '</div>';
+    html += '      </button>';
+    html += '      <button type="button" class="stat-btn' + (state.filtroEstado === 'pendiente' ? ' stat-btn-activo' : '') + '" data-action="filtrar-estado" data-filtro="pendiente">';
+    html += '        <div class="stat-label">Pendiente</div><div class="stat-value" style="color:' + (totales.totalPendiente > 0 ? 'var(--vencido)' : 'var(--ink-muted)') + '">' + formatARS(totales.totalPendiente) + '</div>';
+    html += '      </button>';
     html += '    </div>';
+    html += '    <button type="button" class="historial-toggle" style="margin-top:10px" data-action="toggle-historico">' + (state.mostrarHistorico ? 'Ocultar historico mensual' : 'Ver historico mensual') + '</button>';
+    if (state.mostrarHistorico) html += renderHistorico();
     html += '  </div>';
 
     html += '  <div class="list-card">';
@@ -584,7 +616,10 @@
       html += '    <div class="empty-state">Todavia no cargaste ningun alquiler.<br>Agrega el primero para empezar a llevar el control.</div>';
     }
     if (filas.length > 0 && filasFiltradas.length === 0) {
-      html += '    <div class="empty-state small">No encontre alquileres para "' + escapeHtml(state.busqueda) + '".</div>';
+      var motivoVacio = state.busqueda.trim()
+        ? ('para "' + escapeHtml(state.busqueda) + '"')
+        : (state.filtroEstado ? 'con ese filtro' : '');
+      html += '    <div class="empty-state small">No encontre alquileres ' + motivoVacio + '.</div>';
     }
     filasFiltradas.forEach(function (fila) { html += renderRow(fila); });
 
@@ -634,6 +669,49 @@
     html += '</div>';
     return html;
   }
+  function renderCalendarioPicker() {
+    var anoBase = state.calendarioAno;
+    var partes = state.mesActual.split('-');
+    var anoActual = Number(partes[0]);
+    var mesActualNum = Number(partes[1]);
+    var html = '';
+    html += '<div class="calendario-panel">';
+    html += '  <div class="calendario-anos">';
+    html += '    <button type="button" class="icon-btn" data-action="calendario-ano-prev" aria-label="Ano anterior">' + ICON_CHEVRON_LEFT + '</button>';
+    html += '    <div class="calendario-ano-label">' + anoBase + '</div>';
+    html += '    <button type="button" class="icon-btn" data-action="calendario-ano-next" aria-label="Ano siguiente">' + ICON_CHEVRON_RIGHT + '</button>';
+    html += '  </div>';
+    html += '  <div class="calendario-grid">';
+    for (var m = 1; m <= 12; m++) {
+      var key = anoBase + '-' + String(m).padStart(2, '0');
+      var esActual = (anoBase === anoActual && m === mesActualNum);
+      html += '<button type="button" class="calendario-mes' + (esActual ? ' activo' : '') + '" data-action="calendario-elegir-mes" data-mes="' + key + '">' + MESES_NOMBRE[m - 1].slice(0, 3) + '</button>';
+    }
+    html += '  </div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderHistorico() {
+    var datos = historicoMensual().slice().reverse();
+    var html = '';
+    html += '<div class="historico-panel">';
+    if (datos.length === 0) {
+      html += '<div class="iva-hint">Todavia no hay datos para mostrar.</div>';
+    } else {
+      html += '<div class="historico-header-row"><div>Mes</div><div>Cobrado</div><div>Pendiente</div></div>';
+      datos.forEach(function (d) {
+        html += '<div class="historico-row">';
+        html += '<div class="historico-mes">' + formatMonthLabel(d.mes) + '</div>';
+        html += '<div class="historico-val" style="color:var(--pagado)">' + formatARS(d.totalCobrado) + '</div>';
+        html += '<div class="historico-val" style="color:' + (d.totalPendiente > 0 ? 'var(--vencido)' : 'var(--ink-muted)') + '">' + formatARS(d.totalPendiente) + '</div>';
+        html += '</div>';
+      });
+    }
+    html += '</div>';
+    return html;
+  }
+
   function render() {
     var active = document.activeElement;
     var focusInfo = null;
@@ -666,6 +744,26 @@
       case 'mes-prev': state.mesActual = addMonths(state.mesActual, -1); asegurarMes(); render(); break;
       case 'mes-next': state.mesActual = addMonths(state.mesActual, 1); asegurarMes(); render(); break;
       case 'mes-hoy': state.mesActual = getHoy().todayKey; asegurarMes(); render(); break;
+      case 'toggle-calendario':
+        if (!state.mostrarCalendario) state.calendarioAno = Number(state.mesActual.split('-')[0]);
+        state.mostrarCalendario = !state.mostrarCalendario;
+        render();
+        break;
+      case 'calendario-ano-prev': state.calendarioAno -= 1; render(); break;
+      case 'calendario-ano-next': state.calendarioAno += 1; render(); break;
+      case 'calendario-elegir-mes':
+        state.mesActual = el.getAttribute('data-mes');
+        state.mostrarCalendario = false;
+        asegurarMes();
+        render();
+        break;
+      case 'filtrar-estado': {
+        var val = el.getAttribute('data-filtro') || null;
+        state.filtroEstado = (state.filtroEstado === val) ? null : val;
+        render();
+        break;
+      }
+      case 'toggle-historico': state.mostrarHistorico = !state.mostrarHistorico; render(); break;
       case 'abrir-edicion': {
         var filaData = registrosMes()[id];
         if (filaData) abrirEdicion(Object.assign({ id: id }, filaData));

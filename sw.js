@@ -1,9 +1,9 @@
-var CACHE_NAME = 'alquileres-v2';
+var CACHE_NAME = 'alquileres-v5';
 var ASSETS = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=5',
+  './app.js?v=5',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -33,7 +33,7 @@ self.addEventListener('activate', function (event) {
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(event.request).then(function (response) {
+    fetch(event.request, { cache: 'no-store' }).then(function (response) {
       if (response && response.status === 200) {
         var clone = response.clone();
         caches.open(CACHE_NAME).then(function (cache) { cache.put(event.request, clone); });
