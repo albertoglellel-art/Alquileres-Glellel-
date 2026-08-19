@@ -18,6 +18,16 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
 <link rel="stylesheet" href="style.css">
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem('alquileres-tema');
+    var prefiereOscuro = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var theme = (saved === 'light' || saved === 'dark') ? saved : (prefiereOscuro ? 'dark' : 'light');
+    document.documentElement.setAttribute('data-theme', theme);
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div id="app">
