@@ -549,7 +549,7 @@
     var html = '';
     html += '<div class="page"><div class="container">';
 
-    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div>';
+    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><div style="display:flex;gap:8px"><button type="button" class="theme-toggle" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button><button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div></div>';
     html += '  <h1 class="title">Alquileres</h1>';
 
     if (state.errorGuardado) {
@@ -596,10 +596,7 @@
     html += '  </div>';
 
     html += '  <div class="footer-note">Vencimiento el dia 10 de cada mes</div>';
-    html += '  <div style="display:flex;gap:8px;margin-top:8px">';
-    html += '    <button type="button" class="footer-btn" style="flex:1" data-action="exportar">' + ICON_DOWNLOAD + ' Exportar backup (.json)</button>';
-    html += '    <button type="button" class="footer-btn" style="flex:0 0 auto;padding-left:12px;padding-right:12px" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button>';
-    html += '  </div>';
+    html += '  <button type="button" class="footer-btn" data-action="exportar">' + ICON_DOWNLOAD + ' Exportar backup (.json)</button>';
     if (state.mostrarConfigGithub) html += renderConfigGithub();
     if (state.exportStatus) {
       var colorEstado = state.exportStatus.tipo === 'ok' ? 'var(--pagado)' : (state.exportStatus.tipo === 'error' ? 'var(--vencido)' : 'var(--ink-muted)');
