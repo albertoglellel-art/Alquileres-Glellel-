@@ -78,6 +78,12 @@ h1.title { color: var(--ink); font-family: var(--font-display); font-size: 28px;
   background: var(--error-bg); color: var(--vencido); border: 1px solid var(--vencido);
 }
 
+.aviso-facturar {
+  margin-bottom: 12px; padding: 10px 12px; border-radius: 6px; font-size: 13px;
+  background: var(--paper-card); border: 1px solid var(--pendiente); color: var(--ink);
+}
+.aviso-facturar strong { color: var(--pendiente); }
+
 .card {
   background: var(--paper-card); border: 1px solid var(--rule); border-radius: 8px; padding: 16px; margin-bottom: 16px;
   box-shadow: var(--shadow-card);

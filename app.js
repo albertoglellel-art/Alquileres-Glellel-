@@ -232,6 +232,20 @@
     return { hoy: hoy, todayKey: monthKey(hoy), todayDia: hoy.getDate() };
   }
 
+  function primerDiaHabil(anio, mesUno) {
+    var d = new Date(anio, mesUno - 1, 1);
+    while (d.getDay() === 0 || d.getDay() === 6) {
+      d.setDate(d.getDate() + 1);
+    }
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function tenantesConFacturaDelMes(mesKey) {
+    var registros = state.meses[mesKey] || {};
+    return Object.keys(registros).map(function (id) { return registros[id]; }).filter(function (r) { return r.conFactura; });
+  }
+
   function getFilas() {
     var h = getHoy();
     var rm = registrosMes();
@@ -610,6 +624,18 @@
 
     if (state.errorGuardado) {
       html += '  <div class="error-banner">No se pudo guardar el ultimo cambio. Este navegador podria tener el almacenamiento bloqueado o lleno.</div>';
+    }
+
+    if (state.mesActual === h.todayKey) {
+      var hoyNorm = new Date(); hoyNorm.setHours(0, 0, 0, 0);
+      var habilEsteMes = primerDiaHabil(hoyNorm.getFullYear(), hoyNorm.getMonth() + 1);
+      if (hoyNorm >= habilEsteMes) {
+        var conFacturaLista = tenantesConFacturaDelMes(h.todayKey);
+        if (conFacturaLista.length > 0) {
+          var nombresFactura = conFacturaLista.map(function (r) { return escapeHtml(r.nombre); }).join(', ');
+          html += '  <div class="aviso-facturar">Ya paso el primer dia habil del mes: facturar a <strong>' + nombresFactura + '</strong>.</div>';
+        }
+      }
     }
 
     html += '  <div class="card swipe-area" data-swipe-mes="1">';
