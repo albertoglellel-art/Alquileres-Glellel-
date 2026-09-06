@@ -164,8 +164,10 @@
     mostrarCalendario: false,
     calendarioAno: Number(monthKey(new Date()).split('-')[0]),
     filtroEstado: null,
-    mostrarHistorico: false
+    mostrarHistorico: false,
+    deshacerEliminar: null
   };
+  var deshacerTimeoutHandle = null;
 
   // ---------- Persistence ----------
   function cargarDatos() {
@@ -276,6 +278,19 @@
     });
   }
 
+  function totalesAnio(anio) {
+    var claves = Object.keys(state.meses).filter(function (k) { return k.indexOf(anio + '-') === 0; });
+    var totalCobrado = 0;
+    claves.forEach(function (k) {
+      var registros = state.meses[k] || {};
+      Object.keys(registros).forEach(function (id) {
+        var r = registros[id];
+        if (r.pagado) totalCobrado += montoConIva(r.monto, r.conFactura);
+      });
+    });
+    return { totalCobrado: totalCobrado };
+  }
+
   function historialMontos(id) {
     var claves = Object.keys(state.meses).filter(function (k) { return state.meses[k] && state.meses[k][id]; }).sort();
     var historial = [];
@@ -348,6 +363,8 @@
   }
 
   function eliminarInquilino(id) {
+    var inquilinoBorrado = state.inquilinos.find(function (t) { return t.id === id; });
+    var registroBorrado = registrosMes()[id];
     state.inquilinos = state.inquilinos.filter(function (t) { return t.id !== id; });
     var nextRm = Object.assign({}, registrosMes());
     delete nextRm[id];
@@ -356,6 +373,23 @@
     guardarDatos();
     state.confirmDeleteId = null;
     state.expandedId = null;
+    state.deshacerEliminar = { id: id, inquilino: inquilinoBorrado, registro: registroBorrado, mes: state.mesActual };
+    render();
+    clearTimeout(deshacerTimeoutHandle);
+    deshacerTimeoutHandle = setTimeout(function () { state.deshacerEliminar = null; render(); }, 6000);
+  }
+
+  function deshacerUltimaEliminacion() {
+    var d = state.deshacerEliminar;
+    if (!d || !d.inquilino) { state.deshacerEliminar = null; render(); return; }
+    state.inquilinos = state.inquilinos.concat([d.inquilino]);
+    var nextRm = Object.assign({}, state.meses[d.mes] || {});
+    if (d.registro) nextRm[d.id] = d.registro;
+    state.meses = Object.assign({}, state.meses);
+    state.meses[d.mes] = nextRm;
+    guardarDatos();
+    state.deshacerEliminar = null;
+    clearTimeout(deshacerTimeoutHandle);
     render();
   }
 
@@ -578,7 +612,7 @@
       html += '  <div class="error-banner">No se pudo guardar el ultimo cambio. Este navegador podria tener el almacenamiento bloqueado o lleno.</div>';
     }
 
-    html += '  <div class="card">';
+    html += '  <div class="card swipe-area" data-swipe-mes="1">';
     html += '    <div class="month-nav">';
     html += '      <button type="button" class="icon-btn" data-action="mes-prev" aria-label="Mes anterior">' + ICON_CHEVRON_LEFT + '</button>';
     html += '      <div class="month-label">';
@@ -601,6 +635,12 @@
     html += '        <div class="stat-label">Pendiente</div><div class="stat-value" style="color:' + (totales.totalPendiente > 0 ? 'var(--vencido)' : 'var(--ink-muted)') + '">' + formatARS(totales.totalPendiente) + '</div>';
     html += '      </button>';
     html += '    </div>';
+    var pctCobrado = totales.totalACobrar > 0 ? Math.round((totales.totalCobrado / totales.totalACobrar) * 100) : 0;
+    html += '    <div class="progreso-bar-track"><div class="progreso-bar-fill" style="width:' + pctCobrado + '%"></div></div>';
+    html += '    <div class="progreso-label">' + pctCobrado + '% cobrado este mes</div>';
+    var anioActual = state.mesActual.split('-')[0];
+    var totAnio = totalesAnio(anioActual);
+    html += '    <div class="anio-resumen">Acumulado ' + anioActual + ': <strong style="color:var(--pagado)">' + formatARS(totAnio.totalCobrado) + '</strong> cobrados</div>';
     html += '    <button type="button" class="historial-toggle" style="margin-top:10px" data-action="toggle-historico">' + (state.mostrarHistorico ? 'Ocultar historico mensual' : 'Ver historico mensual') + '</button>';
     if (state.mostrarHistorico) html += renderHistorico();
     html += '  </div>';
@@ -643,6 +683,9 @@
     }
 
     html += '</div></div>';
+    if (state.deshacerEliminar) {
+      html += '<div class="undo-toast">Inquilino eliminado. <button type="button" data-action="deshacer-eliminar">Deshacer</button></div>';
+    }
     return html;
   }
 
@@ -685,7 +728,8 @@
     for (var m = 1; m <= 12; m++) {
       var key = anoBase + '-' + String(m).padStart(2, '0');
       var esActual = (anoBase === anoActual && m === mesActualNum);
-      html += '<button type="button" class="calendario-mes' + (esActual ? ' activo' : '') + '" data-action="calendario-elegir-mes" data-mes="' + key + '">' + MESES_NOMBRE[m - 1].slice(0, 3) + '</button>';
+      var tieneDatos = !!state.meses[key];
+      html += '<button type="button" class="calendario-mes' + (esActual ? ' activo' : '') + (tieneDatos ? ' con-datos' : '') + '" data-action="calendario-elegir-mes" data-mes="' + key + '">' + MESES_NOMBRE[m - 1].slice(0, 3) + '</button>';
     }
     html += '  </div>';
     html += '</div>';
@@ -764,6 +808,7 @@
         break;
       }
       case 'toggle-historico': state.mostrarHistorico = !state.mostrarHistorico; render(); break;
+      case 'deshacer-eliminar': deshacerUltimaEliminacion(); break;
       case 'abrir-edicion': {
         var filaData = registrosMes()[id];
         if (filaData) abrirEdicion(Object.assign({ id: id }, filaData));
@@ -862,6 +907,27 @@
     if (file) importarDatos(file);
     e.target.value = '';
   });
+
+  var swipeStartX = null, swipeStartY = null;
+  appEl.addEventListener('touchstart', function (e) {
+    var area = e.target.closest('[data-swipe-mes]');
+    if (!area) { swipeStartX = null; return; }
+    swipeStartX = e.touches[0].clientX;
+    swipeStartY = e.touches[0].clientY;
+  }, { passive: true });
+  appEl.addEventListener('touchend', function (e) {
+    if (swipeStartX === null) return;
+    var endX = e.changedTouches[0].clientX;
+    var endY = e.changedTouches[0].clientY;
+    var deltaX = endX - swipeStartX;
+    var deltaY = endY - swipeStartY;
+    swipeStartX = null;
+    if (Math.abs(deltaX) > 50 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5) {
+      state.mesActual = addMonths(state.mesActual, deltaX < 0 ? 1 : -1);
+      asegurarMes();
+      render();
+    }
+  }, { passive: true });
 
   // ---------- Init ----------
   cargarDatos();
