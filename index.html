@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-title" content="Alquileres">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=12">
 <script>
 (function () {
   try {
@@ -25,6 +25,7 @@
     var prefiereOscuro = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-color-scheme: dark)').matches;
     var theme = (saved === 'light' || saved === 'dark') ? saved : (prefiereOscuro ? 'dark' : 'light');
     document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.setAttribute('data-letra', localStorage.getItem('alquileres-letra') === 'grande' ? 'grande' : 'normal');
   } catch (e) {}
 })();
 </script>
@@ -36,6 +37,11 @@
 
 <input type="file" id="input-importar" accept="application/json" style="display:none">
 
-<script src="app.js?v=8"></script>
+<!-- Datos compartidos en la nube (Firebase). Si firebase-config.js esta vacio, la app funciona solo en este celular. -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js?v=12"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

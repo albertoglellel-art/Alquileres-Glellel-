@@ -1,9 +1,10 @@
-var CACHE_NAME = 'alquileres-v8';
+var CACHE_NAME = 'alquileres-v12';
 var ASSETS = [
   './',
   './index.html',
-  './style.css?v=8',
-  './app.js?v=8',
+  './style.css?v=12',
+  './app.js?v=12',
+  './firebase-config.js?v=12',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -32,8 +33,10 @@ self.addEventListener('activate', function (event) {
 
 self.addEventListener('fetch', function (event) {
   if (event.request.method !== 'GET') return;
-  // No interceptar pedidos a otros dominios (ej. api.github.com con el token): no deben quedar en cache
-  if (new URL(event.request.url).origin !== self.location.origin) return;
+  // No interceptar pedidos a otros dominios (ej. api.github.com con el token, o los datos de Firestore).
+  // Excepcion: las librerias de Firebase, para que la app abra aunque no haya senal.
+  var origen = new URL(event.request.url).origin;
+  if (origen !== self.location.origin && origen !== 'https://www.gstatic.com') return;
   event.respondWith(
     fetch(event.request, { cache: 'no-store' }).then(function (response) {
       if (response && response.status === 200) {
