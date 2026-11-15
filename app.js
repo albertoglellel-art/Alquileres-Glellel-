@@ -21,23 +21,6 @@
     var num = Number(n) || 0;
     return '$' + Math.round(num).toLocaleString('es-AR');
   }
-  // Acepta "150000", "150.000", "150.000,50", "$ 150.000"
-  function parseMonto(valor) {
-    var str = String(valor == null ? '' : valor).replace(/[\s$]/g, '');
-    if (!str) return 0;
-    if (str.indexOf(',') !== -1) {
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else if (/^\d{1,3}(\.\d{3})+$/.test(str)) {
-      str = str.replace(/\./g, '');
-    }
-    var n = Number(str);
-    return isFinite(n) ? n : 0;
-  }
-  // Fecha de hoy en hora local (toISOString usa UTC y despues de las 21 hs da el dia siguiente)
-  function hoyISO() {
-    var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  }
   function montoConIva(monto, conFactura) {
     var base = Number(monto) || 0;
     return conFactura ? base * 1.21 : base;
@@ -336,17 +319,13 @@
     return historial;
   }
 
-  function mesesPosteriores(mesKey) {
-    return Object.keys(state.meses).filter(function (k) { return k > mesKey; });
-  }
-
   // ---------- Mutations ----------
   function togglePagado(id) {
     var rm = registrosMes();
     var registro = rm[id];
     if (!registro) return;
     var nuevoEstado = !registro.pagado;
-    var actualizado = Object.assign({}, registro, { pagado: nuevoEstado, fechaPago: nuevoEstado ? hoyISO() : null });
+    var actualizado = Object.assign({}, registro, { pagado: nuevoEstado, fechaPago: nuevoEstado ? new Date().toISOString().slice(0, 10) : null });
     var nextRm = Object.assign({}, rm);
     nextRm[id] = actualizado;
     state.meses = Object.assign({}, state.meses);
@@ -373,7 +352,7 @@
   function guardarEdicion(id) {
     var buf = state.editBuffer[id];
     if (!buf) { state.expandedId = null; render(); return; }
-    var montoNum = parseMonto(buf.monto);
+    var montoNum = Number(buf.monto);
     if (!buf.nombre || !buf.nombre.trim() || !montoNum || montoNum <= 0) return;
     var rm = registrosMes();
     var registro = rm[id];
@@ -382,19 +361,11 @@
     nextRm[id] = actualizado;
     state.meses = Object.assign({}, state.meses);
     state.meses[state.mesActual] = nextRm;
-    // Si ya existen meses posteriores (por haberlos visitado), actualizar los que siguen sin cobrar
-    mesesPosteriores(state.mesActual).forEach(function (k) {
-      var r = state.meses[k][id];
-      if (!r || r.pagado) return;
-      state.meses[k] = Object.assign({}, state.meses[k]);
-      state.meses[k][id] = Object.assign({}, r, { nombre: actualizado.nombre, propiedad: actualizado.propiedad, monto: montoNum, conFactura: actualizado.conFactura });
-    });
     state.inquilinos = state.inquilinos.map(function (t) {
       if (t.id !== id) return t;
       return Object.assign({}, t, {
         nombre: actualizado.nombre,
         propiedad: actualizado.propiedad,
-        monto: montoNum,
         conFactura: actualizado.conFactura,
         fechaIngreso: buf.fechaIngreso || '',
         fechaFinContrato: buf.fechaFinContrato || ''
@@ -413,18 +384,10 @@
     delete nextRm[id];
     state.meses = Object.assign({}, state.meses);
     state.meses[state.mesActual] = nextRm;
-    var posterioresBorrados = {};
-    mesesPosteriores(state.mesActual).forEach(function (k) {
-      var r = state.meses[k][id];
-      if (!r || r.pagado) return;
-      posterioresBorrados[k] = r;
-      state.meses[k] = Object.assign({}, state.meses[k]);
-      delete state.meses[k][id];
-    });
     guardarDatos();
     state.confirmDeleteId = null;
     state.expandedId = null;
-    state.deshacerEliminar = { id: id, inquilino: inquilinoBorrado, registro: registroBorrado, mes: state.mesActual, posteriores: posterioresBorrados };
+    state.deshacerEliminar = { id: id, inquilino: inquilinoBorrado, registro: registroBorrado, mes: state.mesActual };
     render();
     clearTimeout(deshacerTimeoutHandle);
     deshacerTimeoutHandle = setTimeout(function () { state.deshacerEliminar = null; render(); }, 6000);
@@ -438,11 +401,6 @@
     if (d.registro) nextRm[d.id] = d.registro;
     state.meses = Object.assign({}, state.meses);
     state.meses[d.mes] = nextRm;
-    Object.keys(d.posteriores || {}).forEach(function (k) {
-      if (!state.meses[k]) return;
-      state.meses[k] = Object.assign({}, state.meses[k]);
-      state.meses[k][d.id] = d.posteriores[k];
-    });
     guardarDatos();
     state.deshacerEliminar = null;
     clearTimeout(deshacerTimeoutHandle);
@@ -450,7 +408,7 @@
   }
 
   function agregarInquilino() {
-    var montoNum = parseMonto(state.nuevo.monto);
+    var montoNum = Number(state.nuevo.monto);
     if (!state.nuevo.nombre.trim() || !montoNum || montoNum <= 0) return;
     var id = uid();
     var nuevoInquilino = {
@@ -467,11 +425,6 @@
     nextRm[id] = { nombre: nuevoInquilino.nombre, propiedad: nuevoInquilino.propiedad, monto: montoNum, conFactura: nuevoInquilino.conFactura, pagado: false, fechaPago: null };
     state.meses = Object.assign({}, state.meses);
     state.meses[state.mesActual] = nextRm;
-    // Si ya existen meses posteriores, el nuevo inquilino tambien tiene que aparecer ahi
-    mesesPosteriores(state.mesActual).forEach(function (k) {
-      state.meses[k] = Object.assign({}, state.meses[k]);
-      state.meses[k][id] = Object.assign({}, nextRm[id]);
-    });
     guardarDatos();
     state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '' };
     state.mostrarForm = false;
@@ -567,7 +520,7 @@
   function renderEditPanel(fila) {
     var buf = state.editBuffer[fila.id] || {};
     var confactura = !!buf.conFactura;
-    var montoNum = parseMonto(buf.monto);
+    var montoNum = Number(buf.monto);
     var ivaHtml = (confactura && montoNum > 0)
       ? '<div class="iva-hint">Total con IVA: ' + formatARS(montoNum * 1.21) + '</div>'
       : '';
@@ -606,7 +559,7 @@
     html += '      <div><div class="field-label">Ingreso</div><input type="date" value="' + escapeHtml(buf.fechaIngreso || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="fechaIngreso" data-focus-key="edit-' + fila.id + '-fechaIngreso"></div>';
     html += '      <div><div class="field-label">Fin contrato</div><input type="date" value="' + escapeHtml(buf.fechaFinContrato || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="fechaFinContrato" data-focus-key="edit-' + fila.id + '-fechaFinContrato"></div>';
     html += '    </div>';
-    html += '    <input type="text" inputmode="decimal" placeholder="Monto mensual (ej: 450.000)" value="' + escapeHtml(buf.monto || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="monto" data-focus-key="edit-' + fila.id + '-monto">';
+    html += '    <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Monto mensual" value="' + escapeHtml(buf.monto || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="monto" data-focus-key="edit-' + fila.id + '-monto">';
     html += '    <div class="toggle-row">';
     html += '      <button type="button" class="toggle-btn' + (!confactura ? ' active' : '') + '" data-action="factura-edit" data-id="' + fila.id + '" data-value="false">Sin factura</button>';
     html += '      <button type="button" class="toggle-btn' + (confactura ? ' active' : '') + '" data-action="factura-edit" data-id="' + fila.id + '" data-value="true">Con factura (+21% IVA)</button>';
@@ -628,7 +581,7 @@
 
   function renderNuevoForm() {
     var n = state.nuevo;
-    var montoNum = parseMonto(n.monto);
+    var montoNum = Number(n.monto);
     var ivaHtml = (n.conFactura && montoNum > 0)
       ? '<div class="iva-hint">Total con IVA: ' + formatARS(montoNum * 1.21) + '</div>'
       : '';
@@ -642,7 +595,7 @@
     html += '      <div><div class="field-label">Ingreso</div><input type="date" value="' + escapeHtml(n.fechaIngreso) + '" data-scope="nuevo" data-field="fechaIngreso" data-focus-key="nuevo-fechaIngreso"></div>';
     html += '      <div><div class="field-label">Fin contrato</div><input type="date" value="' + escapeHtml(n.fechaFinContrato) + '" data-scope="nuevo" data-field="fechaFinContrato" data-focus-key="nuevo-fechaFinContrato"></div>';
     html += '    </div>';
-    html += '    <input type="text" inputmode="decimal" placeholder="Monto mensual (ej: 450.000)" value="' + escapeHtml(n.monto) + '" data-scope="nuevo" data-field="monto" data-focus-key="nuevo-monto">';
+    html += '    <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Monto mensual" value="' + escapeHtml(n.monto) + '" data-scope="nuevo" data-field="monto" data-focus-key="nuevo-monto">';
     html += '    <div class="toggle-row">';
     html += '      <button type="button" class="toggle-btn' + (!n.conFactura ? ' active' : '') + '" data-action="factura-nuevo" data-value="false">Sin factura</button>';
     html += '      <button type="button" class="toggle-btn' + (n.conFactura ? ' active' : '') + '" data-action="factura-nuevo" data-value="true">Con factura (+21% IVA)</button>';
