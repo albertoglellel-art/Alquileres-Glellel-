@@ -544,7 +544,7 @@
       avisoHtml = '<div class="row-warning" style="color:' + color + '">' + escapeHtml(texto) + '</div>';
     }
     var subLine = (fila.propiedad ? escapeHtml(fila.nombre) + ' &middot; ' : '') +
-      formatARS(montoConIva(fila.monto, fila.conFactura)) + (fila.conFactura ? ' +IVA' : '') +
+      formatARS(montoConIva(fila.monto, fila.conFactura)) + (fila.conFactura ? ' IVA incl.' : '') +
       (fila.estado === 'pagado' && fila.fechaPago ? ' &middot; pagado el ' + formatFechaCorta(fila.fechaPago) : '');
 
     var html = '';

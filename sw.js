@@ -1,9 +1,9 @@
-var CACHE_NAME = 'alquileres-v9';
+var CACHE_NAME = 'alquileres-v10';
 var ASSETS = [
   './',
   './index.html',
-  './style.css?v=9',
-  './app.js?v=9',
+  './style.css?v=10',
+  './app.js?v=10',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
