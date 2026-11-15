@@ -185,7 +185,7 @@ h1.title { color: var(--ink); font-family: var(--font-display); font-size: 28px;
 .field-label { color: var(--ink-muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
 .field-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
-input[type="text"], input[type="password"], input[type="number"], input[type="date"], .input {
+input[type="text"], input[type="password"], input[type="number"], input[type="date"], input[type="month"], select, .input {
   width: 100%; padding: 8px 12px; border-radius: 4px; font-size: 14px;
   border: 1px solid var(--rule-strong); background: var(--paper-card); color: var(--ink);
   font-family: inherit;
@@ -267,3 +267,37 @@ input:focus { outline: none; box-shadow: 0 0 0 2px var(--pagado); }
 .row-summary.solo-lectura { cursor: default; }
 .login-card { padding: 20px; }
 .login-card p { margin: 0 0 14px; line-height: 1.5; }
+
+/* Letra grande */
+html[data-letra="grande"] .page { zoom: 1.2; }
+.letra-btn { font-family: var(--font-display); font-weight: 700; font-size: 13px; }
+.letra-btn.activo { background: var(--ink); color: var(--paper-card); }
+
+/* Pagos */
+.pagos-panel { display: flex; flex-direction: column; gap: 8px; padding-bottom: 12px; border-bottom: 1px dashed var(--rule-strong); }
+.pago-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-family: var(--font-mono); font-size: 12px; color: var(--ink); padding: 6px 8px; background: var(--paper-outer); border-radius: 4px; }
+.seccion-label { margin-top: 4px; color: var(--ink); font-family: var(--font-display); font-size: 14px; font-weight: 700; }
+
+/* Avisos */
+.chip-btn { display: inline-block; margin: 4px 4px 0 0; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--pendiente); background: none; color: var(--pendiente); font-weight: 700; font-size: 14px; cursor: pointer; }
+.chip-btn:hover { background: var(--pendiente); color: var(--paper-card); }
+.aviso-hint { margin-top: 6px; font-size: 11px; color: var(--ink-muted); font-family: var(--font-mono); }
+.aviso-aumento { margin-bottom: 16px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--paper-card); }
+.aviso-titulo { font-family: var(--font-display); font-weight: 700; margin-bottom: 6px; }
+.aumento-item { padding: 6px 0; border-top: 1px dashed var(--rule); font-size: 14px; }
+.aumento-item:first-of-type { border-top: none; }
+.aumento-linea { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.calc-aumento { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+
+/* Gastos */
+.gastos-card { margin-top: 16px; }
+.gastos-head { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px; border-bottom: 1px solid var(--rule); }
+.gastos-head .t { font-family: var(--font-display); font-weight: 700; }
+.gastos-total { font-family: var(--font-mono); color: var(--vencido); font-weight: 700; }
+.gasto-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
+.gasto-item .row-main { flex: 1; min-width: 0; }
+.gasto-monto { font-family: var(--font-mono); font-size: 13px; color: var(--ink); white-space: nowrap; }
+.gastos-resultado { padding: 10px 16px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); text-align: center; }
+
+/* Acciones del pie */
+.acciones-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }

@@ -81,8 +81,33 @@
   var ESTADO_CONFIG = {
     pagado: { texto: 'PAGADO', color: 'var(--pagado)' },
     vencido: { texto: 'VENCIDO', color: 'var(--vencido)' },
-    pendiente: { texto: 'PENDIENTE', color: 'var(--pendiente)' }
+    pendiente: { texto: 'PENDIENTE', color: 'var(--pendiente)' },
+    parcial: { texto: 'PARCIAL', color: 'var(--pendiente)' }
   };
+  var MEDIOS_PAGO = ['Transferencia', 'Efectivo', 'Otro'];
+  var IPC_URL = 'https://apis.datos.gob.ar/series/api/series/?ids=148.3_INIVELNAL_DICI_M_26&limit=40&sort=desc&format=json';
+
+  function totalRegistro(r) { return montoConIva(r.monto, r.conFactura); }
+  function sumaPagos(r) { return (r.pagos || []).reduce(function (s, p) { return s + (Number(p.monto) || 0); }, 0); }
+  function cobradoRegistro(r) { return r.pagado ? totalRegistro(r) : Math.min(sumaPagos(r), totalRegistro(r)); }
+  // Recalcula si el mes quedo pagado completo segun los pagos registrados
+  function recalcularPagado(r) {
+    if (!r.pagos || r.pagos.length === 0) return r;
+    var completo = sumaPagos(r) >= totalRegistro(r) - 0.5;
+    var ultimo = r.pagos[r.pagos.length - 1];
+    return Object.assign({}, r, {
+      pagado: completo,
+      fechaPago: completo ? (r.fechaPago || ultimo.fecha) : null,
+      marcadoPor: completo ? (r.marcadoPor || ultimo.por || null) : null
+    });
+  }
+  function formatPct(n) { return (Math.round(n * 100) / 100).toLocaleString('es-AR'); }
+  function numCSV(n) { return (Math.round((Number(n) || 0) * 100) / 100).toFixed(2).replace('.', ','); }
+  function celdaCSV(v) {
+    var str = String(v == null ? '' : v);
+    return /[;"\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+  }
+  function etiquetaInquilino(r) { return r.propiedad || r.nombre; }
 
   var ICON_CHEVRON_LEFT = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>';
   var ICON_CHEVRON_RIGHT = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>';
@@ -94,6 +119,12 @@
   var ICON_SUN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>';
   var ICON_MOON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>';
   var ICON_GEAR = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>';
+
+  var LETRA_KEY = 'alquileres-letra';
+  function aplicarLetra(grande) {
+    document.documentElement.setAttribute('data-letra', grande ? 'grande' : 'normal');
+    try { localStorage.setItem(LETRA_KEY, grande ? 'grande' : 'normal'); } catch (e) {}
+  }
 
   var TEMA_KEY = 'alquileres-tema';
   function aplicarTema(tema) {
@@ -169,7 +200,7 @@
     expandedId: null,
     confirmDeleteId: null,
     mostrarForm: false,
-    nuevo: { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '' },
+    nuevo: { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' },
     editBuffer: {},
     historialAbierto: null,
     busqueda: '',
@@ -186,7 +217,16 @@
     usuario: null,
     rol: null,
     errorNube: null,
-    hayDatosLocalesParaSubir: 0
+    hayDatosLocalesParaSubir: 0,
+    gastos: {},
+    pagoBuffer: {},
+    aumentoAbierto: null,
+    aumentoPct: {},
+    ipc: null,
+    ipcEstado: null,
+    mostrarFormGasto: false,
+    nuevoGasto: { propiedad: '', concepto: '', monto: '' },
+    letraGrande: document.documentElement.getAttribute('data-letra') === 'grande'
   };
   var deshacerTimeoutHandle = null;
 
@@ -196,7 +236,7 @@
   var CONFIG_NUBE = !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey);
   var NUBE = CONFIG_NUBE && typeof firebase !== 'undefined';
   var db = null, docRef = null, auth = null, desuscribir = null;
-  var ultimoSincronizado = { inquilinos: {}, meses: {} };
+  var ultimoSincronizado = { inquilinos: {}, meses: {}, gastos: {} };
 
   function puedeEditar() { return !NUBE || state.rol === 'editor'; }
 
@@ -220,16 +260,17 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         var parsed = JSON.parse(raw);
-        return { inquilinos: parsed.inquilinos || [], meses: parsed.meses || {} };
+        return { inquilinos: parsed.inquilinos || [], meses: parsed.meses || {}, gastos: parsed.gastos || {} };
       }
     } catch (e) {}
-    return { inquilinos: [], meses: {} };
+    return { inquilinos: [], meses: {}, gastos: {} };
   }
 
   function cargarDatos() {
     var local = leerDatosLocales();
     state.inquilinos = local.inquilinos;
     state.meses = local.meses;
+    state.gastos = local.gastos;
     state.loading = false;
   }
 
@@ -245,6 +286,7 @@
       });
     }
     comparar(['inquilinos'], prev.inquilinos, next.inquilinos);
+    comparar(['gastos'], prev.gastos, next.gastos);
     var pm = prev.meses || {}, nm = next.meses || {};
     Object.keys(Object.assign({}, pm, nm)).forEach(function (mes) {
       if (!(mes in nm)) cambios.push({ path: ['meses', mes], valor: undefined });
@@ -257,7 +299,7 @@
   function guardarDatos() {
     if (!NUBE) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ inquilinos: state.inquilinos, meses: state.meses }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ inquilinos: state.inquilinos, meses: state.meses, gastos: state.gastos }));
         state.errorGuardado = false;
       } catch (e) {
         state.errorGuardado = true;
@@ -265,7 +307,7 @@
       return;
     }
     if (!puedeEditar() || !docRef) return;
-    var actual = clonar({ inquilinos: inquilinosAMapa(state.inquilinos), meses: state.meses });
+    var actual = clonar({ inquilinos: inquilinosAMapa(state.inquilinos), meses: state.meses, gastos: state.gastos });
     var cambios = calcularCambios(ultimoSincronizado, actual);
     if (cambios.length === 0) return;
     ultimoSincronizado = actual;
@@ -287,12 +329,14 @@
     var data = snap.exists ? clonar(snap.data()) : {};
     data.inquilinos = data.inquilinos || {};
     data.meses = data.meses || {};
+    data.gastos = data.gastos || {};
     if (!snap.exists && state.rol === 'editor') {
-      docRef.set({ inquilinos: {}, meses: {} }, { merge: true }).catch(function () {});
+      docRef.set({ inquilinos: {}, meses: {}, gastos: {} }, { merge: true }).catch(function () {});
     }
     ultimoSincronizado = clonar(data);
     state.inquilinos = mapaAInquilinos(data.inquilinos);
     state.meses = data.meses;
+    state.gastos = data.gastos;
     state.loading = false;
     state.hayDatosLocalesParaSubir = 0;
     if (state.rol === 'editor' && state.inquilinos.length === 0) {
@@ -327,7 +371,8 @@
       if (desuscribir) { desuscribir(); desuscribir = null; }
       state.inquilinos = [];
       state.meses = {};
-      ultimoSincronizado = { inquilinos: {}, meses: {} };
+      state.gastos = {};
+      ultimoSincronizado = { inquilinos: {}, meses: {}, gastos: {} };
       state.errorNube = null;
       if (!user) {
         state.usuario = null;
@@ -374,13 +419,96 @@
     return state.meses[state.mesActual] || {};
   }
 
-  function ultimoRegistroConocido(id, antesDe) {
+  function ultimoRegistroConMes(id, antesDe) {
     var claves = Object.keys(state.meses).filter(function (k) { return k < antesDe; }).sort().reverse();
     for (var i = 0; i < claves.length; i++) {
       var k = claves[i];
-      if (state.meses[k] && state.meses[k][id]) return state.meses[k][id];
+      if (state.meses[k] && state.meses[k][id]) return { mes: k, registro: state.meses[k][id] };
     }
     return null;
+  }
+  function ultimoRegistroConocido(id, antesDe) {
+    var x = ultimoRegistroConMes(id, antesDe);
+    return x ? x.registro : null;
+  }
+
+  // ---------- Aumentos por IPC ----------
+  function baseAjuste(t) {
+    return t.ultimoAjuste || (t.fechaIngreso ? t.fechaIngreso.slice(0, 7) : '');
+  }
+  function proximoAjuste(t) {
+    var cada = Number(t.ajusteCadaMeses) || 0;
+    var base = baseAjuste(t);
+    if (!cada || !/^\d{4}-\d{2}$/.test(base)) return null;
+    return addMonths(base, cada);
+  }
+  function ajusteVigente(t, mesKey) {
+    var lista = (t.ajustes || []).filter(function (a) { return a.desde <= mesKey; });
+    lista.sort(function (a, b) { return a.desde < b.desde ? -1 : 1; });
+    return lista.length ? lista[lista.length - 1] : null;
+  }
+  function montoBaseAjuste(t, desde) {
+    var prev = ultimoRegistroConocido(t.id, desde);
+    return prev ? Number(prev.monto) : Number(t.monto);
+  }
+  function ipcAcumulado(meses) {
+    var d = state.ipc;
+    if (!d || d.length <= meses) return null;
+    var ultimo = d[0], inicio = d[meses];
+    return {
+      pct: (ultimo[1] / inicio[1] - 1) * 100,
+      desde: addMonths(inicio[0].slice(0, 7), 1),
+      hasta: ultimo[0].slice(0, 7)
+    };
+  }
+  function cargarIPC() {
+    if (state.ipc || state.ipcEstado === 'cargando') return;
+    state.ipcEstado = 'cargando';
+    fetch(IPC_URL).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function (j) {
+      var data = (j && j.data || []).filter(function (x) { return x && x[1] != null; });
+      if (data.length < 2) throw new Error('sin datos');
+      state.ipc = data;
+      state.ipcEstado = 'ok';
+    }).catch(function () {
+      state.ipcEstado = 'error';
+    }).then(render);
+  }
+  function pctSugerido(t) {
+    var acum = ipcAcumulado(Number(t.ajusteCadaMeses) || 0);
+    return acum ? String(Math.round(acum.pct * 100) / 100).replace('.', ',') : '';
+  }
+  function aplicarAumento(id) {
+    var t = state.inquilinos.find(function (x) { return x.id === id; });
+    if (!t) return;
+    var desde = proximoAjuste(t);
+    if (!desde) return;
+    var pctStr = state.aumentoPct[id] != null ? state.aumentoPct[id] : pctSugerido(t);
+    var pct = parseMonto(pctStr);
+    if (!pct || pct <= 0) { alert('Carga el porcentaje de aumento.'); return; }
+    var base = montoBaseAjuste(t, desde);
+    var nuevo = Math.round(base * (1 + pct / 100));
+    if (!confirm('Aplicar aumento de ' + formatPct(pct) + '% a ' + etiquetaInquilino(t) + '?\n' + formatARS(base) + ' -> ' + formatARS(nuevo) + ' desde ' + formatMonthLabel(desde) + '.')) return;
+    state.inquilinos = state.inquilinos.map(function (x) {
+      if (x.id !== id) return x;
+      return Object.assign({}, x, {
+        ultimoAjuste: desde,
+        ajustes: (x.ajustes || []).concat([{ desde: desde, monto: nuevo, pct: Math.round(pct * 100) / 100, fecha: hoyISO(), por: primerNombre() }])
+      });
+    });
+    state.meses = Object.assign({}, state.meses);
+    Object.keys(state.meses).filter(function (k) { return k >= desde; }).forEach(function (k) {
+      var r = state.meses[k][id];
+      if (!r || r.pagado || (r.pagos && r.pagos.length)) return;
+      state.meses[k] = Object.assign({}, state.meses[k]);
+      state.meses[k][id] = Object.assign({}, r, { monto: nuevo });
+    });
+    state.aumentoAbierto = null;
+    delete state.aumentoPct[id];
+    guardarDatos();
+    render();
   }
 
   function asegurarMes() {
@@ -388,14 +516,20 @@
     if (state.inquilinos.length === 0) return;
     var nuevoRegistro = {};
     state.inquilinos.forEach(function (t) {
-      var previo = ultimoRegistroConocido(t.id, state.mesActual);
+      var previoInfo = ultimoRegistroConMes(t.id, state.mesActual);
+      var previo = previoInfo ? previoInfo.registro : null;
+      var monto = previo ? previo.monto : t.monto;
+      var aj = ajusteVigente(t, state.mesActual);
+      if (aj && (!previoInfo || previoInfo.mes < aj.desde)) monto = aj.monto;
       nuevoRegistro[t.id] = {
         nombre: t.nombre,
         propiedad: t.propiedad,
-        monto: previo ? previo.monto : t.monto,
+        monto: monto,
         conFactura: previo ? !!previo.conFactura : !!t.conFactura,
         pagado: false,
-        fechaPago: null
+        fechaPago: null,
+        pagos: [],
+        facturado: false
       };
     });
     state.meses = Object.assign({}, state.meses);
@@ -419,7 +553,7 @@
 
   function tenantesConFacturaDelMes(mesKey) {
     var registros = state.meses[mesKey] || {};
-    return Object.keys(registros).map(function (id) { return registros[id]; }).filter(function (r) { return r.conFactura; });
+    return Object.keys(registros).map(function (id) { return Object.assign({ id: id }, registros[id]); }).filter(function (r) { return r.conFactura; });
   }
 
   function getFilas() {
@@ -427,9 +561,11 @@
     var rm = registrosMes();
     var filas = Object.keys(rm).map(function (id) {
       var r = rm[id];
-      return Object.assign({ id: id }, r, { estado: calcularEstado(state.mesActual, r.pagado, h.todayKey, h.todayDia) });
+      var estado = calcularEstado(state.mesActual, r.pagado, h.todayKey, h.todayDia);
+      if (estado !== 'pagado' && sumaPagos(r) > 0) estado = 'parcial';
+      return Object.assign({ id: id }, r, { estado: estado });
     });
-    var orden = { vencido: 0, pendiente: 1, pagado: 2 };
+    var orden = { vencido: 0, parcial: 1, pendiente: 2, pagado: 3 };
     filas.sort(function (a, b) {
       return (orden[a.estado] - orden[b.estado]) || a.nombre.localeCompare(b.nombre);
     });
@@ -447,13 +583,13 @@
   function aplicarFiltroEstado(filas) {
     if (!state.filtroEstado) return filas;
     if (state.filtroEstado === 'pagado') return filas.filter(function (f) { return f.estado === 'pagado'; });
-    if (state.filtroEstado === 'pendiente') return filas.filter(function (f) { return f.estado === 'pendiente' || f.estado === 'vencido'; });
+    if (state.filtroEstado === 'pendiente') return filas.filter(function (f) { return f.estado !== 'pagado'; });
     return filas;
   }
 
   function getTotales(filas) {
     var totalACobrar = filas.reduce(function (s, f) { return s + montoConIva(f.monto, f.conFactura); }, 0);
-    var totalCobrado = filas.filter(function (f) { return f.pagado; }).reduce(function (s, f) { return s + montoConIva(f.monto, f.conFactura); }, 0);
+    var totalCobrado = filas.reduce(function (s, f) { return s + cobradoRegistro(f); }, 0);
     return { totalACobrar: totalACobrar, totalCobrado: totalCobrado, totalPendiente: totalACobrar - totalCobrado };
   }
 
@@ -463,7 +599,7 @@
       var registros = state.meses[k] || {};
       var lista = Object.keys(registros).map(function (id) { return registros[id]; });
       var totalACobrar = lista.reduce(function (s, r) { return s + montoConIva(r.monto, r.conFactura); }, 0);
-      var totalCobrado = lista.filter(function (r) { return r.pagado; }).reduce(function (s, r) { return s + montoConIva(r.monto, r.conFactura); }, 0);
+      var totalCobrado = lista.reduce(function (s, r) { return s + cobradoRegistro(r); }, 0);
       return { mes: k, totalCobrado: totalCobrado, totalPendiente: totalACobrar - totalCobrado };
     });
   }
@@ -475,7 +611,7 @@
       var registros = state.meses[k] || {};
       Object.keys(registros).forEach(function (id) {
         var r = registros[id];
-        if (r.pagado) totalCobrado += montoConIva(r.monto, r.conFactura);
+        totalCobrado += cobradoRegistro(r);
       });
     });
     return { totalCobrado: totalCobrado };
@@ -495,21 +631,78 @@
     return historial;
   }
 
+  function gastosDelMes(mesKey) {
+    return Object.keys(state.gastos || {}).map(function (id) { return Object.assign({ id: id }, state.gastos[id]); })
+      .filter(function (g) { return g.mes === mesKey; })
+      .sort(function (a, b) { return (a.fecha || '') < (b.fecha || '') ? -1 : 1; });
+  }
+  function totalGastos(lista) { return lista.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0); }
+
   function mesesPosteriores(mesKey) {
     return Object.keys(state.meses).filter(function (k) { return k > mesKey; });
   }
 
   // ---------- Mutations ----------
-  function togglePagado(id) {
+  function actualizarRegistro(id, fn) {
     var rm = registrosMes();
-    var registro = rm[id];
-    if (!registro) return;
-    var nuevoEstado = !registro.pagado;
-    var actualizado = Object.assign({}, registro, { pagado: nuevoEstado, fechaPago: nuevoEstado ? hoyISO() : null, marcadoPor: nuevoEstado ? primerNombre() : null });
+    if (!rm[id]) return;
     var nextRm = Object.assign({}, rm);
-    nextRm[id] = actualizado;
+    nextRm[id] = fn(rm[id]);
     state.meses = Object.assign({}, state.meses);
     state.meses[state.mesActual] = nextRm;
+    guardarDatos();
+    render();
+  }
+
+  function togglePagado(id) {
+    var registro = registrosMes()[id];
+    if (!registro) return;
+    if (registro.pagado) {
+      actualizarRegistro(id, function (r) { return Object.assign({}, r, { pagado: false, fechaPago: null, marcadoPor: null, pagos: [] }); });
+    } else {
+      registrarPago(id, totalRegistro(registro) - cobradoRegistro(registro), '', '');
+    }
+  }
+
+  function registrarPago(id, monto, medio, nota) {
+    if (!monto || monto <= 0) return;
+    actualizarRegistro(id, function (r) {
+      var pagos = (r.pagos || []).concat([{ monto: Math.round(monto * 100) / 100, fecha: hoyISO(), medio: medio || '', nota: nota || '', por: primerNombre() }]);
+      return recalcularPagado(Object.assign({}, r, { pagos: pagos, fechaPago: null, marcadoPor: null }));
+    });
+  }
+
+  function eliminarPago(id, idx) {
+    actualizarRegistro(id, function (r) {
+      var pagos = (r.pagos || []).slice();
+      pagos.splice(idx, 1);
+      var next = Object.assign({}, r, { pagos: pagos, fechaPago: null, marcadoPor: null });
+      if (pagos.length === 0) return Object.assign(next, { pagado: false });
+      return recalcularPagado(next);
+    });
+  }
+
+  function marcarFacturado(id, valor) {
+    actualizarRegistro(id, function (r) { return Object.assign({}, r, { facturado: !!valor }); });
+  }
+
+  function agregarGasto() {
+    var g = state.nuevoGasto;
+    var monto = parseMonto(g.monto);
+    if (!g.concepto.trim() || !monto || monto <= 0) return;
+    state.gastos = Object.assign({}, state.gastos);
+    state.gastos[uid()] = { mes: state.mesActual, fecha: hoyISO(), propiedad: g.propiedad || '', concepto: g.concepto.trim(), monto: monto, por: primerNombre() };
+    state.nuevoGasto = { propiedad: '', concepto: '', monto: '' };
+    state.mostrarFormGasto = false;
+    guardarDatos();
+    render();
+  }
+
+  function eliminarGasto(id) {
+    var g = state.gastos[id];
+    if (!g || !confirm('Eliminar el gasto "' + g.concepto + '" de ' + formatARS(g.monto) + '?')) return;
+    state.gastos = Object.assign({}, state.gastos);
+    delete state.gastos[id];
     guardarDatos();
     render();
   }
@@ -522,7 +715,9 @@
       monto: String(fila.monto),
       conFactura: !!fila.conFactura,
       fechaIngreso: (inquilino && inquilino.fechaIngreso) || '',
-      fechaFinContrato: (inquilino && inquilino.fechaFinContrato) || ''
+      fechaFinContrato: (inquilino && inquilino.fechaFinContrato) || '',
+      ajusteCadaMeses: inquilino && inquilino.ajusteCadaMeses ? String(inquilino.ajusteCadaMeses) : '',
+      ultimoAjuste: (inquilino && inquilino.ultimoAjuste) || ''
     };
     state.expandedId = state.expandedId === fila.id ? null : fila.id;
     state.confirmDeleteId = null;
@@ -536,7 +731,7 @@
     if (!buf.nombre || !buf.nombre.trim() || !montoNum || montoNum <= 0) return;
     var rm = registrosMes();
     var registro = rm[id];
-    var actualizado = Object.assign({}, registro, { nombre: buf.nombre.trim(), propiedad: buf.propiedad.trim(), monto: montoNum, conFactura: !!buf.conFactura });
+    var actualizado = recalcularPagado(Object.assign({}, registro, { nombre: buf.nombre.trim(), propiedad: buf.propiedad.trim(), monto: montoNum, conFactura: !!buf.conFactura }));
     var nextRm = Object.assign({}, rm);
     nextRm[id] = actualizado;
     state.meses = Object.assign({}, state.meses);
@@ -546,7 +741,7 @@
       var r = state.meses[k][id];
       if (!r || r.pagado) return;
       state.meses[k] = Object.assign({}, state.meses[k]);
-      state.meses[k][id] = Object.assign({}, r, { nombre: actualizado.nombre, propiedad: actualizado.propiedad, monto: montoNum, conFactura: actualizado.conFactura });
+      state.meses[k][id] = recalcularPagado(Object.assign({}, r, { nombre: actualizado.nombre, propiedad: actualizado.propiedad, monto: montoNum, conFactura: actualizado.conFactura }));
     });
     state.inquilinos = state.inquilinos.map(function (t) {
       if (t.id !== id) return t;
@@ -556,7 +751,9 @@
         monto: montoNum,
         conFactura: actualizado.conFactura,
         fechaIngreso: buf.fechaIngreso || '',
-        fechaFinContrato: buf.fechaFinContrato || ''
+        fechaFinContrato: buf.fechaFinContrato || '',
+        ajusteCadaMeses: Number(buf.ajusteCadaMeses) || 0,
+        ultimoAjuste: buf.ultimoAjuste || ''
       });
     });
     guardarDatos();
@@ -619,11 +816,13 @@
       monto: montoNum,
       conFactura: !!state.nuevo.conFactura,
       fechaIngreso: state.nuevo.fechaIngreso || '',
-      fechaFinContrato: state.nuevo.fechaFinContrato || ''
+      fechaFinContrato: state.nuevo.fechaFinContrato || '',
+      ajusteCadaMeses: Number(state.nuevo.ajusteCadaMeses) || 0,
+      ultimoAjuste: state.nuevo.ultimoAjuste || (state.nuevo.fechaIngreso ? state.nuevo.fechaIngreso.slice(0, 7) : '')
     };
     state.inquilinos = state.inquilinos.concat([nuevoInquilino]);
     var nextRm = Object.assign({}, registrosMes());
-    nextRm[id] = { nombre: nuevoInquilino.nombre, propiedad: nuevoInquilino.propiedad, monto: montoNum, conFactura: nuevoInquilino.conFactura, pagado: false, fechaPago: null };
+    nextRm[id] = { nombre: nuevoInquilino.nombre, propiedad: nuevoInquilino.propiedad, monto: montoNum, conFactura: nuevoInquilino.conFactura, pagado: false, fechaPago: null, pagos: [], facturado: false };
     state.meses = Object.assign({}, state.meses);
     state.meses[state.mesActual] = nextRm;
     // Si ya existen meses posteriores, el nuevo inquilino tambien tiene que aparecer ahi
@@ -632,13 +831,13 @@
       state.meses[k][id] = Object.assign({}, nextRm[id]);
     });
     guardarDatos();
-    state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '' };
+    state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' };
     state.mostrarForm = false;
     render();
   }
 
   async function exportarDatos() {
-    var payload = { inquilinos: state.inquilinos, meses: state.meses, exportadoEl: new Date().toISOString() };
+    var payload = { inquilinos: state.inquilinos, meses: state.meses, gastos: state.gastos, exportadoEl: new Date().toISOString() };
     var jsonStr = JSON.stringify(payload, null, 2);
 
     var blob = new Blob([jsonStr], { type: 'application/json' });
@@ -671,6 +870,7 @@
         if (!parsed || typeof parsed !== 'object') throw new Error('formato invalido');
         state.inquilinos = Array.isArray(parsed.inquilinos) ? parsed.inquilinos : [];
         state.meses = (parsed.meses && typeof parsed.meses === 'object') ? parsed.meses : {};
+        state.gastos = (parsed.gastos && typeof parsed.gastos === 'object') ? parsed.gastos : {};
         guardarDatos();
         asegurarMes();
         render();
@@ -680,6 +880,93 @@
       }
     };
     reader.readAsText(file);
+  }
+
+  function descargarArchivo(contenido, nombre, tipo) {
+    var blob = new Blob([contenido], { type: tipo });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = nombre;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  // Exporta un CSV con ";" y coma decimal: Excel en espanol lo abre directo en columnas
+  function exportarExcel(alcance) {
+    var anio = state.mesActual.split('-')[0];
+    var meses = alcance === 'anio'
+      ? Object.keys(state.meses).filter(function (k) { return k.indexOf(anio + '-') === 0; }).sort()
+      : [state.mesActual];
+    var filas = [['Mes', 'Propiedad', 'Inquilino', 'Neto', 'IVA', 'Total', 'Cobrado', 'Falta', 'Estado', 'Facturado', 'Detalle de pagos']];
+    var tNeto = 0, tIva = 0, tTotal = 0, tCobrado = 0;
+    meses.forEach(function (k) {
+      var rm = state.meses[k] || {};
+      Object.keys(rm).forEach(function (id) {
+        var r = rm[id];
+        var neto = Number(r.monto) || 0;
+        var iva = r.conFactura ? neto * 0.21 : 0;
+        var total = neto + iva;
+        var cobrado = cobradoRegistro(r);
+        tNeto += neto; tIva += iva; tTotal += total; tCobrado += cobrado;
+        var detalle = (r.pagos || []).map(function (p) {
+          return formatFechaLarga(p.fecha) + ' ' + formatARS(p.monto) + (p.medio ? ' ' + p.medio : '') + (p.nota ? ' (' + p.nota + ')' : '') + (p.por ? ' - ' + p.por : '');
+        }).join(' | ');
+        if (!detalle && r.pagado) detalle = 'Pagado ' + formatFechaLarga(r.fechaPago);
+        var estado = r.pagado ? 'Pagado' : (sumaPagos(r) > 0 ? 'Parcial' : 'Pendiente');
+        filas.push([formatMonthLabel(k), r.propiedad || '', r.nombre, numCSV(neto), numCSV(iva), numCSV(total), numCSV(cobrado), numCSV(total - cobrado), estado, r.conFactura ? (r.facturado ? 'Si' : 'No') : '-', detalle]);
+      });
+    });
+    filas.push([]);
+    filas.push(['Totales', '', '', numCSV(tNeto), numCSV(tIva), numCSV(tTotal), numCSV(tCobrado), numCSV(tTotal - tCobrado)]);
+    var gastos = [];
+    meses.forEach(function (k) { gastos = gastos.concat(gastosDelMes(k)); });
+    filas.push([]);
+    filas.push(['GASTOS']);
+    filas.push(['Mes', 'Fecha', 'Propiedad', 'Concepto', 'Monto', 'Cargado por']);
+    gastos.forEach(function (g) {
+      filas.push([formatMonthLabel(g.mes), formatFechaLarga(g.fecha), g.propiedad || 'General', g.concepto, numCSV(g.monto), g.por || '']);
+    });
+    var tGastos = totalGastos(gastos);
+    filas.push(['Total gastos', '', '', '', numCSV(tGastos)]);
+    filas.push([]);
+    filas.push(['Cobrado menos gastos', '', '', '', numCSV(tCobrado - tGastos)]);
+    var csv = '\ufeff' + filas.map(function (f) { return f.map(celdaCSV).join(';'); }).join('\r\n');
+    descargarArchivo(csv, 'alquileres-' + (alcance === 'anio' ? anio : state.mesActual) + '.csv', 'text/csv;charset=utf-8');
+  }
+
+  function textoResumen() {
+    var filas = getFilas();
+    var tot = getTotales(filas);
+    var pct = tot.totalACobrar > 0 ? Math.round((tot.totalCobrado / tot.totalACobrar) * 100) : 0;
+    var lineas = ['*Alquileres ' + formatMonthLabel(state.mesActual) + '*', 'Cobrado: ' + formatARS(tot.totalCobrado) + ' de ' + formatARS(tot.totalACobrar) + ' (' + pct + '%)'];
+    var pendientes = filas.filter(function (f) { return f.estado !== 'pagado'; });
+    if (pendientes.length) {
+      lineas.push('', 'Falta cobrar:');
+      pendientes.forEach(function (f) {
+        var extra = f.estado === 'vencido' ? ' (vencido)' : (f.estado === 'parcial' ? ' (pago una parte)' : '');
+        lineas.push('- ' + etiquetaInquilino(f) + ': ' + formatARS(totalRegistro(f) - cobradoRegistro(f)) + extra);
+      });
+    }
+    var pagados = filas.filter(function (f) { return f.estado === 'pagado'; });
+    if (pagados.length) {
+      lineas.push('', 'Pagaron:');
+      pagados.forEach(function (f) { lineas.push('- ' + etiquetaInquilino(f)); });
+    }
+    var g = totalGastos(gastosDelMes(state.mesActual));
+    if (g > 0) lineas.push('', 'Gastos del mes: ' + formatARS(g));
+    return lineas.join('\n');
+  }
+
+  function compartirResumen() {
+    var texto = textoResumen();
+    if (navigator.share) {
+      navigator.share({ text: texto }).catch(function () {});
+    } else {
+      window.open('https://wa.me/?text=' + encodeURIComponent(texto), '_blank');
+    }
   }
 
   // ---------- Rendering ----------
@@ -703,8 +990,9 @@
       avisoHtml = '<div class="row-warning" style="color:' + color + '">' + escapeHtml(texto) + '</div>';
     }
     var subLine = (fila.propiedad ? escapeHtml(fila.nombre) + ' &middot; ' : '') +
-      formatARS(montoConIva(fila.monto, fila.conFactura)) + (fila.conFactura ? ' IVA incl.' : '') +
-      (fila.estado === 'pagado' && fila.fechaPago ? ' &middot; pagado el ' + formatFechaCorta(fila.fechaPago) + (fila.marcadoPor ? ' (' + escapeHtml(fila.marcadoPor) + ')' : '') : '');
+      formatARS(totalRegistro(fila)) + (fila.conFactura ? ' IVA incl.' : '') +
+      (fila.estado === 'pagado' && fila.fechaPago ? ' &middot; pagado el ' + formatFechaCorta(fila.fechaPago) + (fila.marcadoPor ? ' (' + escapeHtml(fila.marcadoPor) + ')' : '') : '') +
+      (fila.estado === 'parcial' ? ' &middot; falta ' + formatARS(totalRegistro(fila) - cobradoRegistro(fila)) : '');
 
     var html = '';
     html += '<div class="row">';
@@ -761,9 +1049,19 @@
       deleteAreaHtml = '<button type="button" class="text-btn delete-btn" data-action="pedir-eliminar" data-id="' + fila.id + '">' + ICON_TRASH + ' Eliminar</button>';
     }
 
+    var registroMes = registrosMes()[fila.id] || {};
     var html = '';
     html += '<div class="edit-panel">';
     html += '  <div class="edit-inner">';
+    html += renderPagosPanel(fila.id, registroMes);
+    if (registroMes.conFactura) {
+      html += '    <div class="field-label" style="margin-top:4px">Factura de ' + escapeHtml(formatMonthLabel(state.mesActual)) + '</div>';
+      html += '    <div class="toggle-row">';
+      html += '      <button type="button" class="toggle-btn' + (!registroMes.facturado ? ' active' : '') + '" data-action="facturado-set" data-id="' + fila.id + '" data-value="false">Sin emitir</button>';
+      html += '      <button type="button" class="toggle-btn' + (registroMes.facturado ? ' active' : '') + '" data-action="facturado-set" data-id="' + fila.id + '" data-value="true">Emitida</button>';
+      html += '    </div>';
+    }
+    html += '    <div class="seccion-label">Datos del alquiler</div>';
     html += '    <input type="text" placeholder="Propiedad / unidad (opcional)" value="' + escapeHtml(buf.propiedad || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="propiedad" data-focus-key="edit-' + fila.id + '-propiedad">';
     html += '    <input type="text" placeholder="Nombre del inquilino" value="' + escapeHtml(buf.nombre || '') + '" data-scope="edit" data-id="' + fila.id + '" data-field="nombre" data-focus-key="edit-' + fila.id + '-nombre">';
     html += '    <div class="field-2col">';
@@ -776,6 +1074,7 @@
     html += '      <button type="button" class="toggle-btn' + (confactura ? ' active' : '') + '" data-action="factura-edit" data-id="' + fila.id + '" data-value="true">Con factura (+21% IVA)</button>';
     html += '    </div>';
     html += ivaHtml;
+    html += renderCamposAjuste('edit', ' data-id="' + fila.id + '"', buf, 'edit-' + fila.id + '-');
     html += '    <button type="button" class="historial-toggle" data-action="toggle-historial" data-id="' + fila.id + '">' + (historialOpen ? 'Ocultar historial de montos' : 'Ver historial de montos') + '</button>';
     html += historialHtml;
     html += '    <div class="row-actions">';
@@ -786,6 +1085,138 @@
     html += '      </div>';
     html += '    </div>';
     html += '  </div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderCamposAjuste(scope, idAttr, valores, focusPrefix) {
+    var ops = [['', 'Sin aumento'], ['3', 'Cada 3 meses'], ['4', 'Cada 4 meses'], ['6', 'Cada 6 meses'], ['12', 'Cada 12 meses']];
+    var actual = String(valores.ajusteCadaMeses || '');
+    var html = '';
+    html += '    <div class="field-2col">';
+    html += '      <div><div class="field-label">Aumento IPC</div><select data-scope="' + scope + '"' + idAttr + ' data-field="ajusteCadaMeses" data-focus-key="' + focusPrefix + 'ajusteCadaMeses">' +
+      ops.map(function (o) { return '<option value="' + o[0] + '"' + (actual === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>';
+    html += '      <div><div class="field-label">Ultimo aumento</div><input type="month" placeholder="AAAA-MM" value="' + escapeHtml(valores.ultimoAjuste || '') + '" data-scope="' + scope + '"' + idAttr + ' data-field="ultimoAjuste" data-focus-key="' + focusPrefix + 'ultimoAjuste"></div>';
+    html += '    </div>';
+    return html;
+  }
+
+  function renderPagosPanel(id, r) {
+    var total = totalRegistro(r);
+    var cobrado = cobradoRegistro(r);
+    var falta = Math.max(0, total - cobrado);
+    var buf = state.pagoBuffer[id] || { monto: '', medio: '', nota: '' };
+    var html = '<div class="pagos-panel">';
+    html += '<div class="field-label">Pagos de ' + escapeHtml(formatMonthLabel(state.mesActual)) + '</div>';
+    (r.pagos || []).forEach(function (p, i) {
+      var detalle = formatFechaCorta(p.fecha) + ' &middot; ' + formatARS(p.monto) +
+        (p.medio ? ' &middot; ' + escapeHtml(p.medio) : '') +
+        (p.nota ? ' &middot; ' + escapeHtml(p.nota) : '') +
+        (p.por ? ' (' + escapeHtml(p.por) + ')' : '');
+      html += '<div class="pago-item"><span>' + detalle + '</span><button type="button" class="icon-plain-btn" data-action="eliminar-pago" data-id="' + id + '" data-idx="' + i + '" aria-label="Borrar pago">' + ICON_X + '</button></div>';
+    });
+    if (r.pagado && !(r.pagos && r.pagos.length)) {
+      html += '<div class="pago-item"><span>Pagado el ' + formatFechaCorta(r.fechaPago) + ' (sin detalle)</span></div>';
+    }
+    if (falta > 0.5) {
+      html += '<input type="text" inputmode="decimal" placeholder="Monto (falta ' + formatARS(falta) + ')" value="' + escapeHtml(buf.monto) + '" data-scope="pago" data-id="' + id + '" data-field="monto" data-focus-key="pago-' + id + '-monto">';
+      html += '<div class="toggle-row">' + MEDIOS_PAGO.map(function (m) {
+        return '<button type="button" class="toggle-btn' + (buf.medio === m ? ' active' : '') + '" data-action="pago-medio" data-id="' + id + '" data-value="' + m + '">' + m + '</button>';
+      }).join('') + '</div>';
+      html += '<input type="text" placeholder="Nota (opcional): cuenta, recibo, etc." value="' + escapeHtml(buf.nota) + '" data-scope="pago" data-id="' + id + '" data-field="nota" data-focus-key="pago-' + id + '-nota">';
+      html += '<button type="button" class="primary-btn" data-action="registrar-pago" data-id="' + id + '">Registrar pago</button>';
+      html += '<div class="iva-hint">Si dejas el monto vacio, se registra lo que falta (' + formatARS(falta) + ').</div>';
+    } else {
+      html += '<div class="iva-hint" style="color:var(--pagado)">Mes pagado completo.</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderAumentos(h) {
+    var limite = addMonths(h.todayKey, 1);
+    var lista = state.inquilinos.map(function (t) { return { t: t, prox: proximoAjuste(t) }; })
+      .filter(function (x) { return x.prox && x.prox <= limite; })
+      .sort(function (a, b) { return a.prox < b.prox ? -1 : 1; });
+    if (lista.length === 0) return '';
+    var html = '<div class="aviso-aumento"><div class="aviso-titulo">Aumentos por IPC</div>';
+    lista.forEach(function (x) {
+      var t = x.t;
+      var cuando = x.prox < h.todayKey ? 'le tocaba en ' : (x.prox === h.todayKey ? 'le toca este mes, ' : 'le toca en ');
+      html += '<div class="aumento-item">';
+      html += '<div class="aumento-linea"><span><strong>' + escapeHtml(etiquetaInquilino(t)) + '</strong>: ' + cuando + escapeHtml(formatMonthLabel(x.prox).toLowerCase()) + ' (cada ' + t.ajusteCadaMeses + ' meses)</span>';
+      if (puedeEditar()) html += '<button type="button" class="link-btn" data-action="toggle-aumento" data-id="' + t.id + '">' + (state.aumentoAbierto === t.id ? 'Cerrar' : 'Calcular') + '</button>';
+      html += '</div>';
+      if (state.aumentoAbierto === t.id && puedeEditar()) html += renderCalculadoraAumento(t, x.prox);
+      html += '</div>';
+    });
+    html += '<div class="aviso-hint">Este aviso es solo para la familia: no se le envia nada al inquilino.</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderCalculadoraAumento(t, desde) {
+    var cada = Number(t.ajusteCadaMeses) || 0;
+    var acum = ipcAcumulado(cada);
+    var pctStr = state.aumentoPct[t.id] != null ? state.aumentoPct[t.id] : pctSugerido(t);
+    var pct = parseMonto(pctStr);
+    var base = montoBaseAjuste(t, desde);
+    var html = '<div class="calc-aumento">';
+    if (state.ipcEstado === 'cargando') {
+      html += '<div class="iva-hint">Buscando el IPC del INDEC...</div>';
+    } else if (acum) {
+      html += '<div class="iva-hint">IPC acumulado ' + escapeHtml(formatMonthLabel(acum.desde)) + ' a ' + escapeHtml(formatMonthLabel(acum.hasta)) + ' (ultimos ' + cada + ' meses publicados por INDEC): <strong>' + formatPct(acum.pct) + '%</strong>. Revisalo segun lo que diga el contrato.</div>';
+    } else {
+      html += '<div class="iva-hint">No pude traer el IPC automaticamente. Carga el porcentaje a mano.</div>';
+    }
+    html += '<input type="text" inputmode="decimal" placeholder="% de aumento (ej: 7,5)" value="' + escapeHtml(pctStr) + '" data-scope="aumento" data-id="' + t.id + '" data-focus-key="aumento-' + t.id + '">';
+    if (pct > 0) {
+      var nuevo = Math.round(base * (1 + pct / 100));
+      html += '<div class="iva-hint">' + formatARS(base) + ' &rarr; <strong>' + formatARS(nuevo) + '</strong>' + (t.conFactura ? ' + IVA = ' + formatARS(nuevo * 1.21) : '') + '</div>';
+    }
+    html += '<button type="button" class="primary-btn" data-action="aplicar-aumento" data-id="' + t.id + '">Aplicar desde ' + escapeHtml(formatMonthLabel(desde)) + '</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderGastos(totalCobrado) {
+    var lista = gastosDelMes(state.mesActual);
+    var total = totalGastos(lista);
+    var editable = puedeEditar();
+    var html = '<div class="list-card gastos-card">';
+    html += '<div class="gastos-head"><div class="t">Gastos de ' + escapeHtml(formatMonthLabel(state.mesActual)) + '</div><div class="gastos-total">' + formatARS(total) + '</div></div>';
+    if (lista.length === 0) {
+      html += '<div class="empty-state small">Sin gastos cargados este mes.</div>';
+    }
+    lista.forEach(function (g) {
+      html += '<div class="gasto-item">';
+      html += '<div class="row-main"><div class="row-title">' + escapeHtml(g.concepto) + '</div><div class="row-sub">' + escapeHtml(g.propiedad || 'General') + ' &middot; ' + formatFechaCorta(g.fecha) + (g.por ? ' (' + escapeHtml(g.por) + ')' : '') + '</div></div>';
+      html += '<div class="gasto-monto">' + formatARS(g.monto) + '</div>';
+      if (editable) html += '<button type="button" class="icon-plain-btn" data-action="eliminar-gasto" data-id="' + g.id + '" aria-label="Borrar gasto">' + ICON_TRASH + '</button>';
+      html += '</div>';
+    });
+    if (total > 0) {
+      html += '<div class="gastos-resultado">Cobrado menos gastos: <strong>' + formatARS(totalCobrado - total) + '</strong></div>';
+    }
+    if (editable) {
+      if (!state.mostrarFormGasto) {
+        html += '<button type="button" class="add-toggle with-rows" data-action="mostrar-form-gasto">' + ICON_PLUS + ' Agregar gasto</button>';
+      } else {
+        var g = state.nuevoGasto;
+        var props = [];
+        state.inquilinos.forEach(function (t) { var e = etiquetaInquilino(t); if (props.indexOf(e) === -1) props.push(e); });
+        html += '<div class="new-form">';
+        html += '  <div class="new-form-head"><div class="t">Nuevo gasto</div><button type="button" class="icon-plain-btn" data-action="cerrar-form-gasto" aria-label="Cerrar">' + ICON_X + '</button></div>';
+        html += '  <div class="new-form-body">';
+        html += '    <select data-scope="gasto" data-field="propiedad" data-focus-key="gasto-propiedad"><option value="">General (sin propiedad)</option>' +
+          props.map(function (p) { return '<option value="' + escapeHtml(p) + '"' + (g.propiedad === p ? ' selected' : '') + '>' + escapeHtml(p) + '</option>'; }).join('') + '</select>';
+        html += '    <input type="text" placeholder="Concepto (expensas, ABL, arreglo...)" value="' + escapeHtml(g.concepto) + '" data-scope="gasto" data-field="concepto" data-focus-key="gasto-concepto">';
+        html += '    <input type="text" inputmode="decimal" placeholder="Monto (ej: 85.000)" value="' + escapeHtml(g.monto) + '" data-scope="gasto" data-field="monto" data-focus-key="gasto-monto">';
+        html += '    <button type="button" class="primary-btn" data-action="agregar-gasto">Guardar gasto</button>';
+        html += '  </div>';
+        html += '</div>';
+      }
+    }
     html += '</div>';
     return html;
   }
@@ -812,6 +1243,7 @@
     html += '      <button type="button" class="toggle-btn' + (n.conFactura ? ' active' : '') + '" data-action="factura-nuevo" data-value="true">Con factura (+21% IVA)</button>';
     html += '    </div>';
     html += ivaHtml;
+    html += renderCamposAjuste('nuevo', '', n, 'nuevo-');
     html += '    <button type="button" class="primary-btn" data-action="agregar">Guardar alquiler</button>';
     html += '  </div>';
     html += '</div>';
@@ -835,7 +1267,7 @@
     var html = '';
     html += '<div class="page"><div class="container">';
 
-    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><div style="display:flex;gap:8px">' + (puedeEditar() ? '<button type="button" class="theme-toggle" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button>' : '') + '<button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div></div>';
+    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><div style="display:flex;gap:8px"><button type="button" class="theme-toggle letra-btn' + (state.letraGrande ? ' activo' : '') + '" data-action="toggle-letra" aria-label="Letra grande">A+</button>' + (puedeEditar() ? '<button type="button" class="theme-toggle" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button>' : '') + '<button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div></div>';
     html += '  <h1 class="title">Alquileres</h1>';
     if (NUBE && state.usuario) {
       html += '  <div class="cuenta-row"><span>' + escapeHtml(state.usuario.nombre) + '</span>' +
@@ -857,14 +1289,18 @@
       var hoyNorm = new Date(); hoyNorm.setHours(0, 0, 0, 0);
       var habilEsteMes = primerDiaHabil(hoyNorm.getFullYear(), hoyNorm.getMonth() + 1);
       if (hoyNorm >= habilEsteMes) {
-        var conFacturaLista = tenantesConFacturaDelMes(h.todayKey);
+        var conFacturaLista = tenantesConFacturaDelMes(h.todayKey).filter(function (r) { return !r.facturado; });
         if (conFacturaLista.length > 0) {
-          var nombresFactura = conFacturaLista.map(function (r) { return escapeHtml(r.nombre); }).join(', ');
-          html += '  <div class="aviso-facturar">Ya paso el primer dia habil del mes: facturar a <strong>' + nombresFactura + '</strong>.</div>';
+          var nombresFactura = conFacturaLista.map(function (r) {
+            return '<button type="button" class="chip-btn" data-action="marcar-facturado" data-id="' + r.id + '">' + escapeHtml(r.nombre) + ' &#10003;</button>';
+          }).join(' ');
+          html += '  <div class="aviso-facturar">Ya paso el primer dia habil del mes: facturar a ' + nombresFactura +
+            '<div class="aviso-hint">Toca cada nombre cuando ya este facturado.</div></div>';
         }
       }
     }
 
+    html += renderAumentos(h);
     html += '  <div class="card swipe-area" data-swipe-mes="1">';
     html += '    <div class="month-nav">';
     html += '      <button type="button" class="icon-btn" data-action="mes-prev" aria-label="Mes anterior">' + ICON_CHEVRON_LEFT + '</button>';
@@ -891,6 +1327,11 @@
     var pctCobrado = totales.totalACobrar > 0 ? Math.round((totales.totalCobrado / totales.totalACobrar) * 100) : 0;
     html += '    <div class="progreso-bar-track"><div class="progreso-bar-fill" style="width:' + pctCobrado + '%"></div></div>';
     html += '    <div class="progreso-label">' + pctCobrado + '% cobrado este mes</div>';
+    var netoMes = filas.reduce(function (s, f) { return s + (Number(f.monto) || 0); }, 0);
+    var ivaMes = filas.filter(function (f) { return f.conFactura; }).reduce(function (s, f) { return s + (Number(f.monto) || 0) * 0.21; }, 0);
+    if (ivaMes > 0) {
+      html += '    <div class="anio-resumen">Neto ' + formatARS(netoMes) + ' &middot; IVA del mes <strong style="color:var(--pendiente)">' + formatARS(ivaMes) + '</strong></div>';
+    }
     var anioActual = state.mesActual.split('-')[0];
     var totAnio = totalesAnio(anioActual);
     html += '    <div class="anio-resumen">Acumulado ' + anioActual + ': <strong style="color:var(--pagado)">' + formatARS(totAnio.totalCobrado) + '</strong> cobrados</div>';
@@ -925,7 +1366,14 @@
     }
     html += '  </div>';
 
+    html += renderGastos(totales.totalCobrado);
+
     html += '  <div class="footer-note">Vencimiento el dia 10 de cada mes</div>';
+    html += '  <div class="acciones-grid">';
+    html += '    <button type="button" class="footer-btn" data-action="compartir-resumen">Compartir resumen del mes</button>';
+    html += '    <button type="button" class="footer-btn" data-action="excel-mes">' + ICON_DOWNLOAD + ' Excel del mes</button>';
+    html += '    <button type="button" class="footer-btn" data-action="excel-anio">' + ICON_DOWNLOAD + ' Excel del a&ntilde;o</button>';
+    html += '  </div>';
     html += '  <button type="button" class="footer-btn" data-action="exportar">' + ICON_DOWNLOAD + ' Exportar backup (.json)</button>';
     if (state.mostrarConfigGithub) html += renderConfigGithub();
     if (state.exportStatus) {
@@ -1059,7 +1507,9 @@
   var ACCIONES_EDICION = {
     'abrir-edicion': 1, 'toggle-pagado': 1, 'factura-edit': 1, 'factura-nuevo': 1, 'pedir-eliminar': 1,
     'confirmar-eliminar': 1, 'guardar-edicion': 1, 'mostrar-form': 1, 'agregar': 1, 'importar-trigger': 1,
-    'toggle-config-github': 1, 'guardar-config-github': 1, 'deshacer-eliminar': 1, 'subir-datos-locales': 1
+    'toggle-config-github': 1, 'guardar-config-github': 1, 'deshacer-eliminar': 1, 'subir-datos-locales': 1,
+    'registrar-pago': 1, 'eliminar-pago': 1, 'pago-medio': 1, 'marcar-facturado': 1, 'facturado-set': 1,
+    'toggle-aumento': 1, 'aplicar-aumento': 1, 'mostrar-form-gasto': 1, 'cerrar-form-gasto': 1, 'agregar-gasto': 1, 'eliminar-gasto': 1
   };
   appEl.addEventListener('click', function (e) {
     var el = e.target.closest('[data-action]');
@@ -1069,11 +1519,54 @@
     if (ACCIONES_EDICION[action] && !puedeEditar()) return;
     switch (action) {
       case 'login': iniciarSesion(); break;
+      case 'toggle-letra':
+        state.letraGrande = !state.letraGrande;
+        aplicarLetra(state.letraGrande);
+        render();
+        break;
+      case 'pago-medio': {
+        var pb = Object.assign({ monto: '', medio: '', nota: '' }, state.pagoBuffer[id]);
+        var medio = el.getAttribute('data-value');
+        pb.medio = pb.medio === medio ? '' : medio;
+        state.pagoBuffer[id] = pb;
+        render();
+        break;
+      }
+      case 'registrar-pago': {
+        var reg = registrosMes()[id];
+        if (!reg) break;
+        var pbuf = state.pagoBuffer[id] || { monto: '', medio: '', nota: '' };
+        var falta = totalRegistro(reg) - cobradoRegistro(reg);
+        var montoPago = pbuf.monto.trim() ? parseMonto(pbuf.monto) : falta;
+        if (!montoPago || montoPago <= 0) break;
+        delete state.pagoBuffer[id];
+        registrarPago(id, montoPago, pbuf.medio, pbuf.nota.trim());
+        break;
+      }
+      case 'eliminar-pago':
+        if (confirm('Borrar este pago?')) eliminarPago(id, Number(el.getAttribute('data-idx')));
+        break;
+      case 'marcar-facturado': marcarFacturado(id, true); break;
+      case 'facturado-set': marcarFacturado(id, el.getAttribute('data-value') === 'true'); break;
+      case 'toggle-aumento':
+        state.aumentoAbierto = state.aumentoAbierto === id ? null : id;
+        if (state.aumentoAbierto) cargarIPC();
+        render();
+        break;
+      case 'aplicar-aumento': aplicarAumento(id); break;
+      case 'mostrar-form-gasto': state.mostrarFormGasto = true; render(); break;
+      case 'cerrar-form-gasto': state.mostrarFormGasto = false; state.nuevoGasto = { propiedad: '', concepto: '', monto: '' }; render(); break;
+      case 'agregar-gasto': agregarGasto(); break;
+      case 'eliminar-gasto': eliminarGasto(id); break;
+      case 'compartir-resumen': compartirResumen(); break;
+      case 'excel-mes': exportarExcel('mes'); break;
+      case 'excel-anio': exportarExcel('anio'); break;
       case 'logout': if (auth) auth.signOut(); break;
       case 'subir-datos-locales': {
         var local = leerDatosLocales();
         state.inquilinos = local.inquilinos;
         state.meses = local.meses;
+        state.gastos = local.gastos;
         state.hayDatosLocalesParaSubir = 0;
         asegurarMes();
         guardarDatos();
@@ -1127,7 +1620,7 @@
       case 'mostrar-form': state.mostrarForm = true; render(); break;
       case 'cerrar-form':
         state.mostrarForm = false;
-        state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '' };
+        state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' };
         render();
         break;
       case 'agregar': agregarInquilino(); break;
@@ -1188,6 +1681,18 @@
       var f = t.getAttribute('data-field');
       state.editBuffer[eid] = Object.assign({}, state.editBuffer[eid]);
       state.editBuffer[eid][f] = t.value;
+      render();
+    } else if (scope === 'pago') {
+      var pid = t.getAttribute('data-id');
+      state.pagoBuffer[pid] = Object.assign({ monto: '', medio: '', nota: '' }, state.pagoBuffer[pid]);
+      state.pagoBuffer[pid][t.getAttribute('data-field')] = t.value;
+      render();
+    } else if (scope === 'gasto') {
+      state.nuevoGasto = Object.assign({}, state.nuevoGasto);
+      state.nuevoGasto[t.getAttribute('data-field')] = t.value;
+      render();
+    } else if (scope === 'aumento') {
+      state.aumentoPct[t.getAttribute('data-id')] = t.value;
       render();
     } else if (scope === 'config-github') {
       var cf = t.getAttribute('data-field');
