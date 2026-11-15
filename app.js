@@ -200,7 +200,7 @@
     expandedId: null,
     confirmDeleteId: null,
     mostrarForm: false,
-    nuevo: { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' },
+    nuevo: { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', tipoAjuste: '', ajusteCadaMeses: '', ultimoAjuste: '', porcentajeFijo: '' },
     editBuffer: {},
     historialAbierto: null,
     busqueda: '',
@@ -430,14 +430,19 @@
     return x ? x.registro : null;
   }
 
-  // ---------- Aumentos por IPC ----------
+  // ---------- Aumentos (IPC, ICL o porcentaje fijo) ----------
+  var TIPOS_AJUSTE = { ipc: 'IPC', icl: 'ICL', fijo: 'Porcentaje fijo' };
+  function tipoAjuste(t) {
+    // Los alquileres cargados antes de tener tipo eran todos por IPC
+    return t.tipoAjuste || (Number(t.ajusteCadaMeses) ? 'ipc' : '');
+  }
   function baseAjuste(t) {
     return t.ultimoAjuste || (t.fechaIngreso ? t.fechaIngreso.slice(0, 7) : '');
   }
   function proximoAjuste(t) {
     var cada = Number(t.ajusteCadaMeses) || 0;
     var base = baseAjuste(t);
-    if (!cada || !/^\d{4}-\d{2}$/.test(base)) return null;
+    if (!tipoAjuste(t) || !cada || !/^\d{4}-\d{2}$/.test(base)) return null;
     return addMonths(base, cada);
   }
   function ajusteVigente(t, mesKey) {
@@ -449,15 +454,30 @@
     var prev = ultimoRegistroConocido(t.id, desde);
     return prev ? Number(prev.monto) : Number(t.monto);
   }
-  function ipcAcumulado(meses) {
-    var d = state.ipc;
-    if (!d || d.length <= meses) return null;
-    var ultimo = d[0], inicio = d[meses];
-    return {
-      pct: (ultimo[1] / inicio[1] - 1) * 100,
-      desde: addMonths(inicio[0].slice(0, 7), 1),
-      hasta: ultimo[0].slice(0, 7)
-    };
+  function diaContrato(t) {
+    return t.fechaIngreso ? t.fechaIngreso.slice(8, 10) : '01';
+  }
+  function descripcionAjuste(t) {
+    var tipo = tipoAjuste(t);
+    var cada = 'cada ' + t.ajusteCadaMeses + ' meses';
+    if (tipo === 'fijo') return formatPct(Number(t.porcentajeFijo) || 0) + '% ' + cada;
+    return (TIPOS_AJUSTE[tipo] || '') + ' ' + cada;
+  }
+  // Meses de IPC que se usan: los ultimos publicados antes del aumento.
+  // Ej.: aumento de diciembre cada 3 meses -> agosto, septiembre y octubre.
+  function mesesIPC(desde, cada) {
+    var lista = [];
+    for (var i = cada; i >= 1; i--) lista.push(addMonths(desde, -1 - i));
+    return lista;
+  }
+  // Variacion mensual del IPC con un decimal, como la publica el INDEC
+  function variacionIPC(mes) {
+    if (!state.ipc) return null;
+    var porMes = {};
+    state.ipc.forEach(function (x) { porMes[x[0].slice(0, 7)] = x[1]; });
+    var actual = porMes[mes], anterior = porMes[addMonths(mes, -1)];
+    if (actual == null || anterior == null) return null;
+    return Math.round((actual / anterior - 1) * 1000) / 10;
   }
   function cargarIPC() {
     if (state.ipc || state.ipcEstado === 'cargando') return;
@@ -474,26 +494,54 @@
       state.ipcEstado = 'error';
     }).then(render);
   }
-  function pctSugerido(t) {
-    var acum = ipcAcumulado(Number(t.ajusteCadaMeses) || 0);
-    return acum ? String(Math.round(acum.pct * 100) / 100).replace('.', ',') : '';
+  function numeroDecimalTexto(n) { return String(n).replace('.', ','); }
+  function calcularAumento(t, desde) {
+    var tipo = tipoAjuste(t);
+    var v = state.aumentoPct[t.id] || {};
+    if (tipo === 'ipc') {
+      var factor = 1, completos = true;
+      var meses = mesesIPC(desde, Number(t.ajusteCadaMeses) || 0).map(function (m) {
+        var auto = variacionIPC(m);
+        var str = v['ipc-' + m] != null ? v['ipc-' + m] : (auto != null ? numeroDecimalTexto(auto) : '');
+        if (String(str).trim() === '') completos = false;
+        else factor *= 1 + parseMonto(str) / 100;
+        return { mes: m, valor: str, auto: auto };
+      });
+      return { tipo: tipo, meses: meses, pct: completos && meses.length ? (factor - 1) * 100 : null };
+    }
+    if (tipo === 'icl') {
+      var ini = v['icl-ini'] || '', fin = v['icl-fin'] || '';
+      var a = parseMonto(ini), b = parseMonto(fin);
+      return { tipo: tipo, ini: ini, fin: fin, pct: a > 0 && b > 0 ? (b / a - 1) * 100 : null };
+    }
+    if (tipo === 'fijo') {
+      var f = v.fijo != null ? v.fijo : (Number(t.porcentajeFijo) ? numeroDecimalTexto(t.porcentajeFijo) : '');
+      return { tipo: tipo, fijo: f, pct: String(f).trim() === '' ? null : parseMonto(f) };
+    }
+    return { tipo: tipo, pct: null };
   }
   function aplicarAumento(id) {
     var t = state.inquilinos.find(function (x) { return x.id === id; });
     if (!t) return;
     var desde = proximoAjuste(t);
     if (!desde) return;
-    var pctStr = state.aumentoPct[id] != null ? state.aumentoPct[id] : pctSugerido(t);
-    var pct = parseMonto(pctStr);
-    if (!pct || pct <= 0) { alert('Carga el porcentaje de aumento.'); return; }
+    var calc = calcularAumento(t, desde);
+    if (calc.pct == null || !isFinite(calc.pct)) {
+      alert(calc.tipo === 'icl' ? 'Carga los dos valores del ICL.' : (calc.tipo === 'ipc' ? 'Falta el IPC de algun mes.' : 'Carga el porcentaje.'));
+      return;
+    }
+    var pct = calc.pct;
     var base = montoBaseAjuste(t, desde);
     var nuevo = Math.round(base * (1 + pct / 100));
-    if (!confirm('Aplicar aumento de ' + formatPct(pct) + '% a ' + etiquetaInquilino(t) + '?\n' + formatARS(base) + ' -> ' + formatARS(nuevo) + ' desde ' + formatMonthLabel(desde) + '.')) return;
+    if (!confirm('Aplicar aumento de ' + formatPct(pct) + '% (' + TIPOS_AJUSTE[calc.tipo] + ') a ' + etiquetaInquilino(t) + '?\n' + formatARS(base) + ' -> ' + formatARS(nuevo) + ' desde ' + formatMonthLabel(desde) + '.')) return;
+    var detalle = calc.tipo === 'ipc'
+      ? calc.meses.map(function (m) { return formatMonthLabel(m.mes) + ' ' + m.valor + '%'; }).join(', ')
+      : (calc.tipo === 'icl' ? 'ICL ' + calc.ini + ' -> ' + calc.fin : formatPct(pct) + '% fijo');
     state.inquilinos = state.inquilinos.map(function (x) {
       if (x.id !== id) return x;
       return Object.assign({}, x, {
         ultimoAjuste: desde,
-        ajustes: (x.ajustes || []).concat([{ desde: desde, monto: nuevo, pct: Math.round(pct * 100) / 100, fecha: hoyISO(), por: primerNombre() }])
+        ajustes: (x.ajustes || []).concat([{ desde: desde, monto: nuevo, pct: Math.round(pct * 100) / 100, tipo: calc.tipo, detalle: detalle, fecha: hoyISO(), por: primerNombre() }])
       });
     });
     state.meses = Object.assign({}, state.meses);
@@ -686,8 +734,10 @@
       conFactura: !!fila.conFactura,
       fechaIngreso: (inquilino && inquilino.fechaIngreso) || '',
       fechaFinContrato: (inquilino && inquilino.fechaFinContrato) || '',
+      tipoAjuste: inquilino ? tipoAjuste(inquilino) : '',
       ajusteCadaMeses: inquilino && inquilino.ajusteCadaMeses ? String(inquilino.ajusteCadaMeses) : '',
-      ultimoAjuste: (inquilino && inquilino.ultimoAjuste) || ''
+      ultimoAjuste: (inquilino && inquilino.ultimoAjuste) || '',
+      porcentajeFijo: inquilino && Number(inquilino.porcentajeFijo) ? numeroDecimalTexto(inquilino.porcentajeFijo) : ''
     };
     state.expandedId = state.expandedId === fila.id ? null : fila.id;
     state.confirmDeleteId = null;
@@ -722,8 +772,10 @@
         conFactura: actualizado.conFactura,
         fechaIngreso: buf.fechaIngreso || '',
         fechaFinContrato: buf.fechaFinContrato || '',
-        ajusteCadaMeses: Number(buf.ajusteCadaMeses) || 0,
-        ultimoAjuste: buf.ultimoAjuste || ''
+        tipoAjuste: buf.tipoAjuste || '',
+        ajusteCadaMeses: buf.tipoAjuste ? (Number(buf.ajusteCadaMeses) || 0) : 0,
+        ultimoAjuste: buf.ultimoAjuste || '',
+        porcentajeFijo: buf.tipoAjuste === 'fijo' ? (parseMonto(buf.porcentajeFijo) || 0) : 0
       });
     });
     guardarDatos();
@@ -787,7 +839,9 @@
       conFactura: !!state.nuevo.conFactura,
       fechaIngreso: state.nuevo.fechaIngreso || '',
       fechaFinContrato: state.nuevo.fechaFinContrato || '',
-      ajusteCadaMeses: Number(state.nuevo.ajusteCadaMeses) || 0,
+      tipoAjuste: state.nuevo.tipoAjuste || '',
+      ajusteCadaMeses: state.nuevo.tipoAjuste ? (Number(state.nuevo.ajusteCadaMeses) || 0) : 0,
+      porcentajeFijo: state.nuevo.tipoAjuste === 'fijo' ? (parseMonto(state.nuevo.porcentajeFijo) || 0) : 0,
       ultimoAjuste: state.nuevo.ultimoAjuste || (state.nuevo.fechaIngreso ? state.nuevo.fechaIngreso.slice(0, 7) : '')
     };
     state.inquilinos = state.inquilinos.concat([nuevoInquilino]);
@@ -801,7 +855,7 @@
       state.meses[k][id] = Object.assign({}, nextRm[id]);
     });
     guardarDatos();
-    state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' };
+    state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', tipoAjuste: '', ajusteCadaMeses: '', ultimoAjuste: '', porcentajeFijo: '' };
     state.mostrarForm = false;
     render();
   }
@@ -1046,14 +1100,27 @@
   }
 
   function renderCamposAjuste(scope, idAttr, valores, focusPrefix) {
-    var ops = [['', 'Sin aumento'], ['3', 'Cada 3 meses'], ['4', 'Cada 4 meses'], ['6', 'Cada 6 meses'], ['12', 'Cada 12 meses']];
-    var actual = String(valores.ajusteCadaMeses || '');
+    var tipo = valores.tipoAjuste || '';
+    var tipos = [['', 'Sin aumento'], ['ipc', 'IPC'], ['icl', 'ICL'], ['fijo', 'Porcentaje fijo']];
+    var frecuencias = [['', 'Elegir...'], ['3', 'Cada 3 meses'], ['4', 'Cada 4 meses'], ['6', 'Cada 6 meses'], ['12', 'Cada 12 meses']];
+    var cada = String(valores.ajusteCadaMeses || '');
+    function select(field, opciones, actual) {
+      return '<select data-scope="' + scope + '"' + idAttr + ' data-field="' + field + '" data-focus-key="' + focusPrefix + field + '">' +
+        opciones.map(function (o) { return '<option value="' + o[0] + '"' + (actual === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>';
+    }
     var html = '';
     html += '    <div class="field-2col">';
-    html += '      <div><div class="field-label">Aumento IPC</div><select data-scope="' + scope + '"' + idAttr + ' data-field="ajusteCadaMeses" data-focus-key="' + focusPrefix + 'ajusteCadaMeses">' +
-      ops.map(function (o) { return '<option value="' + o[0] + '"' + (actual === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>';
-    html += '      <div><div class="field-label">Ultimo aumento</div><input type="month" placeholder="AAAA-MM" value="' + escapeHtml(valores.ultimoAjuste || '') + '" data-scope="' + scope + '"' + idAttr + ' data-field="ultimoAjuste" data-focus-key="' + focusPrefix + 'ultimoAjuste"></div>';
+    html += '      <div><div class="field-label">Aumento por</div>' + select('tipoAjuste', tipos, tipo) + '</div>';
+    if (tipo) html += '      <div><div class="field-label">Frecuencia</div>' + select('ajusteCadaMeses', frecuencias, cada) + '</div>';
     html += '    </div>';
+    if (tipo) {
+      html += '    <div class="field-2col">';
+      html += '      <div><div class="field-label">Ultimo aumento</div><input type="month" placeholder="AAAA-MM" value="' + escapeHtml(valores.ultimoAjuste || '') + '" data-scope="' + scope + '"' + idAttr + ' data-field="ultimoAjuste" data-focus-key="' + focusPrefix + 'ultimoAjuste"></div>';
+      if (tipo === 'fijo') {
+        html += '      <div><div class="field-label">Porcentaje</div><input type="text" inputmode="decimal" placeholder="% (ej: 10)" value="' + escapeHtml(valores.porcentajeFijo || '') + '" data-scope="' + scope + '"' + idAttr + ' data-field="porcentajeFijo" data-focus-key="' + focusPrefix + 'porcentajeFijo"></div>';
+      }
+      html += '    </div>';
+    }
     return html;
   }
 
@@ -1095,12 +1162,12 @@
       .filter(function (x) { return x.prox && x.prox <= limite; })
       .sort(function (a, b) { return a.prox < b.prox ? -1 : 1; });
     if (lista.length === 0) return '';
-    var html = '<div class="aviso-aumento"><div class="aviso-titulo">Aumentos por IPC</div>';
+    var html = '<div class="aviso-aumento"><div class="aviso-titulo">Aumentos</div>';
     lista.forEach(function (x) {
       var t = x.t;
       var cuando = x.prox < h.todayKey ? 'le tocaba en ' : (x.prox === h.todayKey ? 'le toca este mes, ' : 'le toca en ');
       html += '<div class="aumento-item">';
-      html += '<div class="aumento-linea"><span><strong>' + escapeHtml(etiquetaInquilino(t)) + '</strong>: ' + cuando + escapeHtml(formatMonthLabel(x.prox).toLowerCase()) + ' (cada ' + t.ajusteCadaMeses + ' meses)</span>';
+      html += '<div class="aumento-linea"><span><strong>' + escapeHtml(etiquetaInquilino(t)) + '</strong>: ' + cuando + escapeHtml(formatMonthLabel(x.prox).toLowerCase()) + ' (' + escapeHtml(descripcionAjuste(t)) + ')</span>';
       if (puedeEditar()) html += '<button type="button" class="link-btn" data-action="toggle-aumento" data-id="' + t.id + '">' + (state.aumentoAbierto === t.id ? 'Cerrar' : 'Calcular') + '</button>';
       html += '</div>';
       if (state.aumentoAbierto === t.id && puedeEditar()) html += renderCalculadoraAumento(t, x.prox);
@@ -1111,24 +1178,39 @@
     return html;
   }
 
+  function inputAumento(t, campo, valor, placeholder) {
+    return '<input type="text" inputmode="decimal" placeholder="' + placeholder + '" value="' + escapeHtml(valor) + '" data-scope="aumento" data-id="' + t.id + '" data-field="' + campo + '" data-focus-key="aumento-' + t.id + '-' + campo + '">';
+  }
+
   function renderCalculadoraAumento(t, desde) {
-    var cada = Number(t.ajusteCadaMeses) || 0;
-    var acum = ipcAcumulado(cada);
-    var pctStr = state.aumentoPct[t.id] != null ? state.aumentoPct[t.id] : pctSugerido(t);
-    var pct = parseMonto(pctStr);
+    var calc = calcularAumento(t, desde);
     var base = montoBaseAjuste(t, desde);
     var html = '<div class="calc-aumento">';
-    if (state.ipcEstado === 'cargando') {
-      html += '<div class="iva-hint">Buscando el IPC del INDEC...</div>';
-    } else if (acum) {
-      html += '<div class="iva-hint">IPC acumulado ' + escapeHtml(formatMonthLabel(acum.desde)) + ' a ' + escapeHtml(formatMonthLabel(acum.hasta)) + ' (ultimos ' + cada + ' meses publicados por INDEC): <strong>' + formatPct(acum.pct) + '%</strong>. Revisalo segun lo que diga el contrato.</div>';
-    } else {
-      html += '<div class="iva-hint">No pude traer el IPC automaticamente. Carga el porcentaje a mano.</div>';
+    if (calc.tipo === 'ipc') {
+      if (state.ipcEstado === 'cargando') {
+        html += '<div class="iva-hint">Buscando el IPC del INDEC...</div>';
+      } else {
+        html += '<div class="iva-hint">Variacion mensual del IPC (INDEC) de cada mes. Revisala con lo que publico el INDEC y corregila si hace falta.</div>';
+      }
+      calc.meses.forEach(function (m) {
+        html += '<div class="ipc-mes"><span>' + escapeHtml(formatMonthLabel(m.mes)) + '</span>' + inputAumento(t, 'ipc-' + m.mes, m.valor, '%') + '<span>%</span></div>';
+      });
+      var faltan = calc.meses.filter(function (m) { return m.auto == null; }).length;
+      if (state.ipcEstado !== 'cargando' && faltan > 0) {
+        html += '<div class="iva-hint">' + (state.ipcEstado === 'error' ? 'No pude traer el IPC automaticamente.' : 'Algun mes todavia no esta publicado o la fuente esta atrasada.') + ' Completa a mano los que faltan.</div>';
+      }
+    } else if (calc.tipo === 'icl') {
+      var fIni = diaContrato(t) + '/' + baseAjuste(t).split('-').reverse().join('/');
+      var fFin = diaContrato(t) + '/' + desde.split('-').reverse().join('/');
+      html += '<div class="iva-hint">Valores del ICL que publica el Banco Central (BCRA) para cada fecha.</div>';
+      html += '<div class="ipc-mes"><span>ICL al ' + escapeHtml(fIni) + '</span>' + inputAumento(t, 'icl-ini', calc.ini, 'ej: 21,45') + '</div>';
+      html += '<div class="ipc-mes"><span>ICL al ' + escapeHtml(fFin) + '</span>' + inputAumento(t, 'icl-fin', calc.fin, 'ej: 23,10') + '</div>';
+    } else if (calc.tipo === 'fijo') {
+      html += '<div class="ipc-mes"><span>Porcentaje pactado</span>' + inputAumento(t, 'fijo', calc.fijo, '%') + '<span>%</span></div>';
     }
-    html += '<input type="text" inputmode="decimal" placeholder="% de aumento (ej: 7,5)" value="' + escapeHtml(pctStr) + '" data-scope="aumento" data-id="' + t.id + '" data-focus-key="aumento-' + t.id + '">';
-    if (pct > 0) {
-      var nuevo = Math.round(base * (1 + pct / 100));
-      html += '<div class="iva-hint">' + formatARS(base) + ' &rarr; <strong>' + formatARS(nuevo) + '</strong>' + (t.conFactura ? ' + IVA = ' + formatARS(nuevo * 1.21) : '') + '</div>';
+    if (calc.pct != null && isFinite(calc.pct)) {
+      var nuevo = Math.round(base * (1 + calc.pct / 100));
+      html += '<div class="iva-hint">Aumento: <strong>' + formatPct(calc.pct) + '%</strong><br>' + formatARS(base) + ' &rarr; <strong>' + formatARS(nuevo) + '</strong>' + (t.conFactura ? ' + IVA = ' + formatARS(nuevo * 1.21) : '') + '</div>';
     }
     html += '<button type="button" class="primary-btn" data-action="aplicar-aumento" data-id="' + t.id + '">Aplicar desde ' + escapeHtml(formatMonthLabel(desde)) + '</button>';
     html += '</div>';
@@ -1462,7 +1544,10 @@
       case 'facturado-set': marcarFacturado(id, el.getAttribute('data-value') === 'true'); break;
       case 'toggle-aumento':
         state.aumentoAbierto = state.aumentoAbierto === id ? null : id;
-        if (state.aumentoAbierto) cargarIPC();
+        if (state.aumentoAbierto) {
+          var tAum = state.inquilinos.find(function (x) { return x.id === id; });
+          if (tAum && tipoAjuste(tAum) === 'ipc') cargarIPC();
+        }
         render();
         break;
       case 'aplicar-aumento': aplicarAumento(id); break;
@@ -1528,7 +1613,7 @@
       case 'mostrar-form': state.mostrarForm = true; render(); break;
       case 'cerrar-form':
         state.mostrarForm = false;
-        state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', ajusteCadaMeses: '', ultimoAjuste: '' };
+        state.nuevo = { nombre: '', propiedad: '', monto: '', conFactura: false, fechaIngreso: '', fechaFinContrato: '', tipoAjuste: '', ajusteCadaMeses: '', ultimoAjuste: '', porcentajeFijo: '' };
         render();
         break;
       case 'agregar': agregarInquilino(); break;
@@ -1596,7 +1681,9 @@
       state.pagoBuffer[pid][t.getAttribute('data-field')] = t.value;
       render();
     } else if (scope === 'aumento') {
-      state.aumentoPct[t.getAttribute('data-id')] = t.value;
+      var aid = t.getAttribute('data-id');
+      state.aumentoPct[aid] = Object.assign({}, state.aumentoPct[aid]);
+      state.aumentoPct[aid][t.getAttribute('data-field')] = t.value;
       render();
     } else if (scope === 'config-github') {
       var cf = t.getAttribute('data-field');

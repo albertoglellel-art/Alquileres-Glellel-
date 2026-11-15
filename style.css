@@ -288,6 +288,9 @@ html[data-letra="grande"] .page { zoom: 1.2; }
 .aumento-item:first-of-type { border-top: none; }
 .aumento-linea { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .calc-aumento { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ipc-mes { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ipc-mes span:first-child { flex: 1; color: var(--ink-muted); font-family: var(--font-mono); }
+.ipc-mes input { width: 110px !important; text-align: right; font-family: var(--font-mono); }
 
 /* Acciones del pie */
 .acciones-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
