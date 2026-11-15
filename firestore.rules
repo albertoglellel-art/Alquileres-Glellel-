@@ -1,0 +1,39 @@
+rules_version = '2';
+// Reglas de seguridad: pegar en Consola de Firebase -> Firestore Database -> Reglas -> Publicar.
+// Quien puede hacer que se define en el documento config/acceso (listas "editores" y "lectores", mails en minuscula).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function acceso() {
+      return get(/databases/$(database)/documents/config/acceso).data;
+    }
+    function logueado() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function email() {
+      return request.auth.token.email.lower();
+    }
+    function esEditor() {
+      return logueado() && email() in acceso().editores;
+    }
+    function esLector() {
+      return logueado() && (email() in acceso().editores || email() in acceso().lectores);
+    }
+
+    // La lista de acceso solo se cambia desde la consola de Firebase, nunca desde la app.
+    match /config/acceso {
+      allow read: if esLector();
+      allow write: if false;
+    }
+
+    // Los datos de alquileres: todos los autorizados leen, solo los editores escriben.
+    match /alquileres/{doc} {
+      allow read: if esLector();
+      allow write: if esEditor();
+    }
+
+    // Todo lo demas, cerrado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

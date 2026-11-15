@@ -182,32 +182,191 @@
     calendarioAno: Number(monthKey(new Date()).split('-')[0]),
     filtroEstado: null,
     mostrarHistorico: false,
-    deshacerEliminar: null
+    deshacerEliminar: null,
+    usuario: null,
+    rol: null,
+    errorNube: null,
+    hayDatosLocalesParaSubir: 0
   };
   var deshacerTimeoutHandle = null;
 
   // ---------- Persistence ----------
-  function cargarDatos() {
+  // Modo local: datos solo en este navegador (como antes).
+  // Modo nube: si firebase-config.js tiene datos, todos comparten los mismos datos en Firestore.
+  var CONFIG_NUBE = !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey);
+  var NUBE = CONFIG_NUBE && typeof firebase !== 'undefined';
+  var db = null, docRef = null, auth = null, desuscribir = null;
+  var ultimoSincronizado = { inquilinos: {}, meses: {} };
+
+  function puedeEditar() { return !NUBE || state.rol === 'editor'; }
+
+  function clonar(obj) { return JSON.parse(JSON.stringify(obj || {})); }
+  function estable(v) {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(estable).join(',') + ']';
+    return '{' + Object.keys(v).sort().map(function (k) { return JSON.stringify(k) + ':' + estable(v[k]); }).join(',') + '}';
+  }
+  function inquilinosAMapa(lista) {
+    var m = {};
+    lista.forEach(function (t) { m[t.id] = t; });
+    return m;
+  }
+  function mapaAInquilinos(mapa) {
+    return Object.keys(mapa || {}).map(function (id) { return Object.assign({}, mapa[id], { id: id }); });
+  }
+
+  function leerDatosLocales() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         var parsed = JSON.parse(raw);
-        state.inquilinos = parsed.inquilinos || [];
-        state.meses = parsed.meses || {};
+        return { inquilinos: parsed.inquilinos || [], meses: parsed.meses || {} };
       }
-    } catch (e) {
-      // primera vez, sin datos guardados todavia
-    }
+    } catch (e) {}
+    return { inquilinos: [], meses: {} };
+  }
+
+  function cargarDatos() {
+    var local = leerDatosLocales();
+    state.inquilinos = local.inquilinos;
+    state.meses = local.meses;
     state.loading = false;
   }
 
-  function guardarDatos() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ inquilinos: state.inquilinos, meses: state.meses }));
-      state.errorGuardado = false;
-    } catch (e) {
-      state.errorGuardado = true;
+  // Compara lo ultimo que vino de la nube con el estado actual y devuelve solo los registros que cambiaron.
+  // Asi, si dos personas cargan cosas distintas al mismo tiempo, no se pisan.
+  function calcularCambios(prev, next) {
+    var cambios = [];
+    function comparar(base, a, b) {
+      a = a || {}; b = b || {};
+      Object.keys(Object.assign({}, a, b)).forEach(function (k) {
+        if (!(k in b)) cambios.push({ path: base.concat([k]), valor: undefined });
+        else if (!(k in a) || estable(a[k]) !== estable(b[k])) cambios.push({ path: base.concat([k]), valor: b[k] });
+      });
     }
+    comparar(['inquilinos'], prev.inquilinos, next.inquilinos);
+    var pm = prev.meses || {}, nm = next.meses || {};
+    Object.keys(Object.assign({}, pm, nm)).forEach(function (mes) {
+      if (!(mes in nm)) cambios.push({ path: ['meses', mes], valor: undefined });
+      else if (!(mes in pm)) cambios.push({ path: ['meses', mes], valor: nm[mes] });
+      else comparar(['meses', mes], pm[mes], nm[mes]);
+    });
+    return cambios;
+  }
+
+  function guardarDatos() {
+    if (!NUBE) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ inquilinos: state.inquilinos, meses: state.meses }));
+        state.errorGuardado = false;
+      } catch (e) {
+        state.errorGuardado = true;
+      }
+      return;
+    }
+    if (!puedeEditar() || !docRef) return;
+    var actual = clonar({ inquilinos: inquilinosAMapa(state.inquilinos), meses: state.meses });
+    var cambios = calcularCambios(ultimoSincronizado, actual);
+    if (cambios.length === 0) return;
+    ultimoSincronizado = actual;
+    var args = [];
+    cambios.forEach(function (c) {
+      var fp = new (Function.prototype.bind.apply(firebase.firestore.FieldPath, [null].concat(c.path)))();
+      args.push(fp);
+      args.push(c.valor === undefined ? firebase.firestore.FieldValue.delete() : c.valor);
+    });
+    docRef.update.apply(docRef, args).then(function () {
+      if (state.errorGuardado) { state.errorGuardado = false; render(); }
+    }).catch(function () {
+      state.errorGuardado = true;
+      render();
+    });
+  }
+
+  function aplicarSnapshot(snap) {
+    var data = snap.exists ? clonar(snap.data()) : {};
+    data.inquilinos = data.inquilinos || {};
+    data.meses = data.meses || {};
+    if (!snap.exists && state.rol === 'editor') {
+      docRef.set({ inquilinos: {}, meses: {} }, { merge: true }).catch(function () {});
+    }
+    ultimoSincronizado = clonar(data);
+    state.inquilinos = mapaAInquilinos(data.inquilinos);
+    state.meses = data.meses;
+    state.loading = false;
+    state.hayDatosLocalesParaSubir = 0;
+    if (state.rol === 'editor' && state.inquilinos.length === 0) {
+      state.hayDatosLocalesParaSubir = leerDatosLocales().inquilinos.length;
+    }
+    asegurarMes();
+    render();
+  }
+
+  async function obtenerRol(email) {
+    try {
+      var snap = await db.collection('config').doc('acceso').get();
+      if (!snap.exists) return 'sin-acceso';
+      var d = snap.data() || {};
+      var norm = function (l) { return (Array.isArray(l) ? l : []).map(function (e) { return String(e).toLowerCase().trim(); }); };
+      if (norm(d.editores).indexOf(email) !== -1) return 'editor';
+      if (norm(d.lectores).indexOf(email) !== -1) return 'lector';
+      return 'sin-acceso';
+    } catch (e) {
+      return 'sin-acceso';
+    }
+  }
+
+  function iniciarNube() {
+    firebase.initializeApp(window.FIREBASE_CONFIG);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    try { db.enablePersistence({ synchronizeTabs: true }).catch(function () {}); } catch (e) {}
+    docRef = db.collection('alquileres').doc('principal');
+    auth.getRedirectResult().catch(function () {});
+    auth.onAuthStateChanged(async function (user) {
+      if (desuscribir) { desuscribir(); desuscribir = null; }
+      state.inquilinos = [];
+      state.meses = {};
+      ultimoSincronizado = { inquilinos: {}, meses: {} };
+      state.errorNube = null;
+      if (!user) {
+        state.usuario = null;
+        state.rol = null;
+        state.loading = false;
+        render();
+        return;
+      }
+      state.usuario = { email: String(user.email || '').toLowerCase(), nombre: user.displayName || user.email || '' };
+      state.loading = true;
+      render();
+      state.rol = await obtenerRol(state.usuario.email);
+      if (state.rol === 'sin-acceso') { state.loading = false; render(); return; }
+      desuscribir = docRef.onSnapshot(aplicarSnapshot, function () {
+        state.loading = false;
+        state.errorNube = 'No se pudieron leer los datos. Revisa la conexion o los permisos.';
+        render();
+      });
+    });
+  }
+
+  function iniciarSesion() {
+    var provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    auth.signInWithPopup(provider).catch(function (e) {
+      var code = e && e.code;
+      if (code === 'auth/popup-blocked' || code === 'auth/operation-not-supported-in-this-environment') {
+        auth.signInWithRedirect(provider);
+      } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        state.errorNube = 'No se pudo iniciar sesion: ' + (e && e.message ? e.message : code);
+        render();
+      }
+    });
+  }
+
+  function primerNombre() {
+    if (!state.usuario) return null;
+    var n = (state.usuario.nombre || state.usuario.email).split(/[\s@]/)[0];
+    return n || null;
   }
 
   // ---------- Derived ----------
@@ -346,7 +505,7 @@
     var registro = rm[id];
     if (!registro) return;
     var nuevoEstado = !registro.pagado;
-    var actualizado = Object.assign({}, registro, { pagado: nuevoEstado, fechaPago: nuevoEstado ? hoyISO() : null });
+    var actualizado = Object.assign({}, registro, { pagado: nuevoEstado, fechaPago: nuevoEstado ? hoyISO() : null, marcadoPor: nuevoEstado ? primerNombre() : null });
     var nextRm = Object.assign({}, rm);
     nextRm[id] = actualizado;
     state.meses = Object.assign({}, state.meses);
@@ -545,17 +704,22 @@
     }
     var subLine = (fila.propiedad ? escapeHtml(fila.nombre) + ' &middot; ' : '') +
       formatARS(montoConIva(fila.monto, fila.conFactura)) + (fila.conFactura ? ' IVA incl.' : '') +
-      (fila.estado === 'pagado' && fila.fechaPago ? ' &middot; pagado el ' + formatFechaCorta(fila.fechaPago) : '');
+      (fila.estado === 'pagado' && fila.fechaPago ? ' &middot; pagado el ' + formatFechaCorta(fila.fechaPago) + (fila.marcadoPor ? ' (' + escapeHtml(fila.marcadoPor) + ')' : '') : '');
 
     var html = '';
     html += '<div class="row">';
-    html += '  <div class="row-summary" data-action="abrir-edicion" data-id="' + fila.id + '">';
+    var editable = puedeEditar();
+    html += '  <div class="row-summary' + (editable ? '' : ' solo-lectura') + '"' + (editable ? ' data-action="abrir-edicion" data-id="' + fila.id + '"' : '') + '>';
     html += '    <div class="row-main">';
     html += '      <div class="row-title">' + escapeHtml(fila.propiedad || fila.nombre) + '</div>';
     html += '      <div class="row-sub">' + subLine + '</div>';
     html += avisoHtml;
     html += '    </div>';
-    html += '    <button type="button" class="sello-btn" data-action="toggle-pagado" data-id="' + fila.id + '" aria-label="Cambiar estado de pago">' + renderSello(fila.estado) + '</button>';
+    if (editable) {
+      html += '    <button type="button" class="sello-btn" data-action="toggle-pagado" data-id="' + fila.id + '" aria-label="Cambiar estado de pago">' + renderSello(fila.estado) + '</button>';
+    } else {
+      html += '    <div class="sello-btn">' + renderSello(fila.estado) + '</div>';
+    }
     html += '  </div>';
     if (state.expandedId === fila.id) {
       html += renderEditPanel(fila);
@@ -655,9 +819,14 @@
   }
 
   function renderApp() {
+    if (CONFIG_NUBE && !NUBE) {
+      return '<div class="cargando">No se pudo conectar. Revisa internet y volve a abrir la app.</div>';
+    }
     if (state.loading) {
       return '<div class="cargando">Cargando el libro de alquileres…</div>';
     }
+    if (NUBE && !state.usuario) return renderLogin();
+    if (NUBE && state.rol === 'sin-acceso') return renderSinAcceso();
     var h = getHoy();
     var filas = getFilas();
     var filasFiltradas = aplicarFiltroEstado(getFilasFiltradas(filas));
@@ -666,14 +835,25 @@
     var html = '';
     html += '<div class="page"><div class="container">';
 
-    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><div style="display:flex;gap:8px"><button type="button" class="theme-toggle" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button><button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div></div>';
+    html += '  <div class="top-row"><div class="eyebrow">Control mensual</div><div style="display:flex;gap:8px">' + (puedeEditar() ? '<button type="button" class="theme-toggle" data-action="toggle-config-github" aria-label="Configurar backup a GitHub">' + ICON_GEAR + '</button>' : '') + '<button type="button" class="theme-toggle" data-action="toggle-tema" aria-label="Cambiar tema">' + (state.tema === 'dark' ? ICON_SUN : ICON_MOON) + '</button></div></div>';
     html += '  <h1 class="title">Alquileres</h1>';
-
-    if (state.errorGuardado) {
-      html += '  <div class="error-banner">No se pudo guardar el ultimo cambio. Este navegador podria tener el almacenamiento bloqueado o lleno.</div>';
+    if (NUBE && state.usuario) {
+      html += '  <div class="cuenta-row"><span>' + escapeHtml(state.usuario.nombre) + '</span>' +
+        '<span class="rol-chip">' + (state.rol === 'editor' ? 'Puede editar' : 'Solo lectura') + '</span>' +
+        '<button type="button" class="link-btn" data-action="logout">Salir</button></div>';
+    }
+    if (state.errorNube) {
+      html += '  <div class="error-banner">' + escapeHtml(state.errorNube) + '</div>';
+    }
+    if (state.hayDatosLocalesParaSubir > 0) {
+      html += '  <div class="import-banner"><p>Este celular tiene ' + state.hayDatosLocalesParaSubir + ' alquiler(es) cargados de antes. &iquest;Subirlos a la nube para que los vea toda la familia?</p><button type="button" data-action="subir-datos-locales">Subir a la nube</button></div>';
     }
 
-    if (state.mesActual === h.todayKey) {
+    if (state.errorGuardado) {
+      html += '  <div class="error-banner">' + (NUBE ? 'No se pudo guardar el ultimo cambio en la nube. Revisa la conexion.' : 'No se pudo guardar el ultimo cambio. Este navegador podria tener el almacenamiento bloqueado o lleno.') + '</div>';
+    }
+
+    if (puedeEditar() && state.mesActual === h.todayKey) {
       var hoyNorm = new Date(); hoyNorm.setHours(0, 0, 0, 0);
       var habilEsteMes = primerDiaHabil(hoyNorm.getFullYear(), hoyNorm.getMonth() + 1);
       if (hoyNorm >= habilEsteMes) {
@@ -726,7 +906,7 @@
       html += '    </div></div>';
     }
     if (filas.length === 0) {
-      html += '    <div class="empty-state">Todavia no cargaste ningun alquiler.<br>Agrega el primero para empezar a llevar el control.</div>';
+      html += '    <div class="empty-state">' + (puedeEditar() ? 'Todavia no cargaste ningun alquiler.<br>Agrega el primero para empezar a llevar el control.' : 'Todavia no hay alquileres cargados.') + '</div>';
     }
     if (filas.length > 0 && filasFiltradas.length === 0) {
       var motivoVacio = state.busqueda.trim()
@@ -736,7 +916,9 @@
     }
     filasFiltradas.forEach(function (fila) { html += renderRow(fila); });
 
-    if (!state.mostrarForm) {
+    if (!puedeEditar()) {
+      // solo lectura: sin boton de agregar
+    } else if (!state.mostrarForm) {
       html += '    <button type="button" class="add-toggle' + (filas.length > 0 ? ' with-rows' : '') + '" data-action="mostrar-form">' + ICON_PLUS + ' Agregar alquiler</button>';
     } else {
       html += renderNuevoForm();
@@ -751,7 +933,7 @@
       html += '  <div style="text-align:center;margin-top:8px;font-size:12px;font-family:var(--font-mono);color:' + colorEstado + '">' + escapeHtml(state.exportStatus.mensaje) + '</div>';
     }
 
-    if (state.inquilinos.length === 0 && !state.mostrarForm) {
+    if (puedeEditar() && !state.hayDatosLocalesParaSubir && state.inquilinos.length === 0 && !state.mostrarForm) {
       html += '  <div class="import-banner"><p>&iquest;Tenes un backup de la version anterior?</p><button type="button" data-action="importar-trigger">Importar backup (.json)</button></div>';
     }
 
@@ -759,6 +941,28 @@
     if (state.deshacerEliminar) {
       html += '<div class="undo-toast">Inquilino eliminado. <button type="button" data-action="deshacer-eliminar">Deshacer</button></div>';
     }
+    return html;
+  }
+
+  function renderLogin() {
+    var html = '<div class="page"><div class="container">';
+    html += '<div class="eyebrow">Control mensual</div><h1 class="title">Alquileres</h1>';
+    html += '<div class="card login-card">';
+    html += '<p>Entra con tu cuenta de Google para ver los alquileres de la familia.</p>';
+    html += '<button type="button" class="primary-btn" data-action="login">Entrar con Google</button>';
+    if (state.errorNube) html += '<div class="error-banner" style="margin-top:12px">' + escapeHtml(state.errorNube) + '</div>';
+    html += '</div></div></div>';
+    return html;
+  }
+
+  function renderSinAcceso() {
+    var html = '<div class="page"><div class="container">';
+    html += '<div class="eyebrow">Control mensual</div><h1 class="title">Alquileres</h1>';
+    html += '<div class="card login-card">';
+    html += '<p>La cuenta <strong>' + escapeHtml(state.usuario.email) + '</strong> todavia no tiene acceso.</p>';
+    html += '<p>Pedile a quien administra la app que agregue este mail.</p>';
+    html += '<button type="button" class="primary-btn" data-action="logout">Entrar con otra cuenta</button>';
+    html += '</div></div></div>';
     return html;
   }
 
@@ -852,12 +1056,30 @@
   }
 
   // ---------- Event delegation ----------
+  var ACCIONES_EDICION = {
+    'abrir-edicion': 1, 'toggle-pagado': 1, 'factura-edit': 1, 'factura-nuevo': 1, 'pedir-eliminar': 1,
+    'confirmar-eliminar': 1, 'guardar-edicion': 1, 'mostrar-form': 1, 'agregar': 1, 'importar-trigger': 1,
+    'toggle-config-github': 1, 'guardar-config-github': 1, 'deshacer-eliminar': 1, 'subir-datos-locales': 1
+  };
   appEl.addEventListener('click', function (e) {
     var el = e.target.closest('[data-action]');
     if (!el) return;
     var action = el.getAttribute('data-action');
     var id = el.getAttribute('data-id');
+    if (ACCIONES_EDICION[action] && !puedeEditar()) return;
     switch (action) {
+      case 'login': iniciarSesion(); break;
+      case 'logout': if (auth) auth.signOut(); break;
+      case 'subir-datos-locales': {
+        var local = leerDatosLocales();
+        state.inquilinos = local.inquilinos;
+        state.meses = local.meses;
+        state.hayDatosLocalesParaSubir = 0;
+        asegurarMes();
+        guardarDatos();
+        render();
+        break;
+      }
       case 'mes-prev': state.mesActual = addMonths(state.mesActual, -1); asegurarMes(); render(); break;
       case 'mes-next': state.mesActual = addMonths(state.mesActual, 1); asegurarMes(); render(); break;
       case 'mes-hoy': state.mesActual = getHoy().todayKey; asegurarMes(); render(); break;
@@ -1003,9 +1225,14 @@
   }, { passive: true });
 
   // ---------- Init ----------
-  cargarDatos();
-  asegurarMes();
-  render();
+  if (NUBE) {
+    render();
+    iniciarNube();
+  } else {
+    cargarDatos();
+    asegurarMes();
+    render();
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {

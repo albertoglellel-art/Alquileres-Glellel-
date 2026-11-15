@@ -260,3 +260,10 @@ input:focus { outline: none; box-shadow: 0 0 0 2px var(--pagado); }
   transition: background-color .15s, border-color .15s;
 }
 .import-banner button:hover { background: var(--rule); border-color: var(--ink); }
+
+/* Cuenta y modo nube */
+.cuenta-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -4px 0 16px; font-size: 13px; color: var(--ink-muted); }
+.rol-chip { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border: 1px solid var(--rule-strong); border-radius: 999px; }
+.row-summary.solo-lectura { cursor: default; }
+.login-card { padding: 20px; }
+.login-card p { margin: 0 0 14px; line-height: 1.5; }
