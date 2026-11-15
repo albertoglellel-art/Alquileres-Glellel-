@@ -1,10 +1,10 @@
-var CACHE_NAME = 'alquileres-v12';
+var CACHE_NAME = 'alquileres-v13';
 var ASSETS = [
   './',
   './index.html',
-  './style.css?v=12',
-  './app.js?v=12',
-  './firebase-config.js?v=12',
+  './style.css?v=13',
+  './app.js?v=13',
+  './firebase-config.js?v=13',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

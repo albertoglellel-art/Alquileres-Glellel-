@@ -289,15 +289,5 @@ html[data-letra="grande"] .page { zoom: 1.2; }
 .aumento-linea { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .calc-aumento { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 
-/* Gastos */
-.gastos-card { margin-top: 16px; }
-.gastos-head { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px; border-bottom: 1px solid var(--rule); }
-.gastos-head .t { font-family: var(--font-display); font-weight: 700; }
-.gastos-total { font-family: var(--font-mono); color: var(--vencido); font-weight: 700; }
-.gasto-item { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
-.gasto-item .row-main { flex: 1; min-width: 0; }
-.gasto-monto { font-family: var(--font-mono); font-size: 13px; color: var(--ink); white-space: nowrap; }
-.gastos-resultado { padding: 10px 16px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); text-align: center; }
-
 /* Acciones del pie */
 .acciones-grid { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }

@@ -224,8 +224,6 @@
     aumentoPct: {},
     ipc: null,
     ipcEstado: null,
-    mostrarFormGasto: false,
-    nuevoGasto: { propiedad: '', concepto: '', monto: '' },
     letraGrande: document.documentElement.getAttribute('data-letra') === 'grande'
   };
   var deshacerTimeoutHandle = null;
@@ -631,13 +629,6 @@
     return historial;
   }
 
-  function gastosDelMes(mesKey) {
-    return Object.keys(state.gastos || {}).map(function (id) { return Object.assign({ id: id }, state.gastos[id]); })
-      .filter(function (g) { return g.mes === mesKey; })
-      .sort(function (a, b) { return (a.fecha || '') < (b.fecha || '') ? -1 : 1; });
-  }
-  function totalGastos(lista) { return lista.reduce(function (s, g) { return s + (Number(g.monto) || 0); }, 0); }
-
   function mesesPosteriores(mesKey) {
     return Object.keys(state.meses).filter(function (k) { return k > mesKey; });
   }
@@ -684,27 +675,6 @@
 
   function marcarFacturado(id, valor) {
     actualizarRegistro(id, function (r) { return Object.assign({}, r, { facturado: !!valor }); });
-  }
-
-  function agregarGasto() {
-    var g = state.nuevoGasto;
-    var monto = parseMonto(g.monto);
-    if (!g.concepto.trim() || !monto || monto <= 0) return;
-    state.gastos = Object.assign({}, state.gastos);
-    state.gastos[uid()] = { mes: state.mesActual, fecha: hoyISO(), propiedad: g.propiedad || '', concepto: g.concepto.trim(), monto: monto, por: primerNombre() };
-    state.nuevoGasto = { propiedad: '', concepto: '', monto: '' };
-    state.mostrarFormGasto = false;
-    guardarDatos();
-    render();
-  }
-
-  function eliminarGasto(id) {
-    var g = state.gastos[id];
-    if (!g || !confirm('Eliminar el gasto "' + g.concepto + '" de ' + formatARS(g.monto) + '?')) return;
-    state.gastos = Object.assign({}, state.gastos);
-    delete state.gastos[id];
-    guardarDatos();
-    render();
   }
 
   function abrirEdicion(fila) {
@@ -921,18 +891,6 @@
     });
     filas.push([]);
     filas.push(['Totales', '', '', numCSV(tNeto), numCSV(tIva), numCSV(tTotal), numCSV(tCobrado), numCSV(tTotal - tCobrado)]);
-    var gastos = [];
-    meses.forEach(function (k) { gastos = gastos.concat(gastosDelMes(k)); });
-    filas.push([]);
-    filas.push(['GASTOS']);
-    filas.push(['Mes', 'Fecha', 'Propiedad', 'Concepto', 'Monto', 'Cargado por']);
-    gastos.forEach(function (g) {
-      filas.push([formatMonthLabel(g.mes), formatFechaLarga(g.fecha), g.propiedad || 'General', g.concepto, numCSV(g.monto), g.por || '']);
-    });
-    var tGastos = totalGastos(gastos);
-    filas.push(['Total gastos', '', '', '', numCSV(tGastos)]);
-    filas.push([]);
-    filas.push(['Cobrado menos gastos', '', '', '', numCSV(tCobrado - tGastos)]);
     var csv = '\ufeff' + filas.map(function (f) { return f.map(celdaCSV).join(';'); }).join('\r\n');
     descargarArchivo(csv, 'alquileres-' + (alcance === 'anio' ? anio : state.mesActual) + '.csv', 'text/csv;charset=utf-8');
   }
@@ -955,8 +913,6 @@
       lineas.push('', 'Pagaron:');
       pagados.forEach(function (f) { lineas.push('- ' + etiquetaInquilino(f)); });
     }
-    var g = totalGastos(gastosDelMes(state.mesActual));
-    if (g > 0) lineas.push('', 'Gastos del mes: ' + formatARS(g));
     return lineas.join('\n');
   }
 
@@ -1179,48 +1135,6 @@
     return html;
   }
 
-  function renderGastos(totalCobrado) {
-    var lista = gastosDelMes(state.mesActual);
-    var total = totalGastos(lista);
-    var editable = puedeEditar();
-    var html = '<div class="list-card gastos-card">';
-    html += '<div class="gastos-head"><div class="t">Gastos de ' + escapeHtml(formatMonthLabel(state.mesActual)) + '</div><div class="gastos-total">' + formatARS(total) + '</div></div>';
-    if (lista.length === 0) {
-      html += '<div class="empty-state small">Sin gastos cargados este mes.</div>';
-    }
-    lista.forEach(function (g) {
-      html += '<div class="gasto-item">';
-      html += '<div class="row-main"><div class="row-title">' + escapeHtml(g.concepto) + '</div><div class="row-sub">' + escapeHtml(g.propiedad || 'General') + ' &middot; ' + formatFechaCorta(g.fecha) + (g.por ? ' (' + escapeHtml(g.por) + ')' : '') + '</div></div>';
-      html += '<div class="gasto-monto">' + formatARS(g.monto) + '</div>';
-      if (editable) html += '<button type="button" class="icon-plain-btn" data-action="eliminar-gasto" data-id="' + g.id + '" aria-label="Borrar gasto">' + ICON_TRASH + '</button>';
-      html += '</div>';
-    });
-    if (total > 0) {
-      html += '<div class="gastos-resultado">Cobrado menos gastos: <strong>' + formatARS(totalCobrado - total) + '</strong></div>';
-    }
-    if (editable) {
-      if (!state.mostrarFormGasto) {
-        html += '<button type="button" class="add-toggle with-rows" data-action="mostrar-form-gasto">' + ICON_PLUS + ' Agregar gasto</button>';
-      } else {
-        var g = state.nuevoGasto;
-        var props = [];
-        state.inquilinos.forEach(function (t) { var e = etiquetaInquilino(t); if (props.indexOf(e) === -1) props.push(e); });
-        html += '<div class="new-form">';
-        html += '  <div class="new-form-head"><div class="t">Nuevo gasto</div><button type="button" class="icon-plain-btn" data-action="cerrar-form-gasto" aria-label="Cerrar">' + ICON_X + '</button></div>';
-        html += '  <div class="new-form-body">';
-        html += '    <select data-scope="gasto" data-field="propiedad" data-focus-key="gasto-propiedad"><option value="">General (sin propiedad)</option>' +
-          props.map(function (p) { return '<option value="' + escapeHtml(p) + '"' + (g.propiedad === p ? ' selected' : '') + '>' + escapeHtml(p) + '</option>'; }).join('') + '</select>';
-        html += '    <input type="text" placeholder="Concepto (expensas, ABL, arreglo...)" value="' + escapeHtml(g.concepto) + '" data-scope="gasto" data-field="concepto" data-focus-key="gasto-concepto">';
-        html += '    <input type="text" inputmode="decimal" placeholder="Monto (ej: 85.000)" value="' + escapeHtml(g.monto) + '" data-scope="gasto" data-field="monto" data-focus-key="gasto-monto">';
-        html += '    <button type="button" class="primary-btn" data-action="agregar-gasto">Guardar gasto</button>';
-        html += '  </div>';
-        html += '</div>';
-      }
-    }
-    html += '</div>';
-    return html;
-  }
-
   function renderNuevoForm() {
     var n = state.nuevo;
     var montoNum = parseMonto(n.monto);
@@ -1366,8 +1280,6 @@
     }
     html += '  </div>';
 
-    html += renderGastos(totales.totalCobrado);
-
     html += '  <div class="footer-note">Vencimiento el dia 10 de cada mes</div>';
     html += '  <div class="acciones-grid">';
     html += '    <button type="button" class="footer-btn" data-action="compartir-resumen">Compartir resumen del mes</button>';
@@ -1509,7 +1421,7 @@
     'confirmar-eliminar': 1, 'guardar-edicion': 1, 'mostrar-form': 1, 'agregar': 1, 'importar-trigger': 1,
     'toggle-config-github': 1, 'guardar-config-github': 1, 'deshacer-eliminar': 1, 'subir-datos-locales': 1,
     'registrar-pago': 1, 'eliminar-pago': 1, 'pago-medio': 1, 'marcar-facturado': 1, 'facturado-set': 1,
-    'toggle-aumento': 1, 'aplicar-aumento': 1, 'mostrar-form-gasto': 1, 'cerrar-form-gasto': 1, 'agregar-gasto': 1, 'eliminar-gasto': 1
+    'toggle-aumento': 1, 'aplicar-aumento': 1
   };
   appEl.addEventListener('click', function (e) {
     var el = e.target.closest('[data-action]');
@@ -1554,10 +1466,6 @@
         render();
         break;
       case 'aplicar-aumento': aplicarAumento(id); break;
-      case 'mostrar-form-gasto': state.mostrarFormGasto = true; render(); break;
-      case 'cerrar-form-gasto': state.mostrarFormGasto = false; state.nuevoGasto = { propiedad: '', concepto: '', monto: '' }; render(); break;
-      case 'agregar-gasto': agregarGasto(); break;
-      case 'eliminar-gasto': eliminarGasto(id); break;
       case 'compartir-resumen': compartirResumen(); break;
       case 'excel-mes': exportarExcel('mes'); break;
       case 'excel-anio': exportarExcel('anio'); break;
@@ -1686,10 +1594,6 @@
       var pid = t.getAttribute('data-id');
       state.pagoBuffer[pid] = Object.assign({ monto: '', medio: '', nota: '' }, state.pagoBuffer[pid]);
       state.pagoBuffer[pid][t.getAttribute('data-field')] = t.value;
-      render();
-    } else if (scope === 'gasto') {
-      state.nuevoGasto = Object.assign({}, state.nuevoGasto);
-      state.nuevoGasto[t.getAttribute('data-field')] = t.value;
       render();
     } else if (scope === 'aumento') {
       state.aumentoPct[t.getAttribute('data-id')] = t.value;
