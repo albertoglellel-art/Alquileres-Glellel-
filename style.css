@@ -185,7 +185,7 @@ h1.title { color: var(--ink); font-family: var(--font-display); font-size: 28px;
 .field-label { color: var(--ink-muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 4px; }
 .field-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
-input[type="text"], input[type="number"], input[type="date"], .input {
+input[type="text"], input[type="password"], input[type="number"], input[type="date"], .input {
   width: 100%; padding: 8px 12px; border-radius: 4px; font-size: 14px;
   border: 1px solid var(--rule-strong); background: var(--paper-card); color: var(--ink);
   font-family: inherit;
